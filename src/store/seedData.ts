@@ -1,10 +1,4 @@
-import type { Report, User, Notification } from '../types';
-
-export const demoUser: User = {
-  id: 'u_1',
-  name: 'Alex Johnson',
-  email: 'alex.j@fictional.edu'
-};
+import type { Report, Notification } from '../types';
 
 export const initialNotifications: Notification[] = [
   {

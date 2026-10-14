@@ -24,8 +24,6 @@ export interface AuthContextType {
   session: Session | null;
   loading: boolean;
   isConfigured: boolean;
-  isDemoMode: boolean;
-  isDemo: boolean;
   isAuthenticated: boolean;
   isPasswordRecovery: boolean;
   signUp: (email: string, password: string, name: string) => Promise<SignUpResult>;
@@ -44,9 +42,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState<boolean>(isSupabaseConfigured);
 
-  const isDemoMode = false;
   const isAuthenticated = Boolean(!loading && session && user);
-  const isDemo = isDemoMode;
 
   const [isPasswordRecovery, setIsPasswordRecovery] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
@@ -101,8 +97,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return {
       id: userId,
       name: userName || 'Campus Student',
-      email: userEmail,
-      isDemo: false
+      email: userEmail
     };
   }, []);
 
@@ -115,7 +110,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase) {
-      setLoading(false);
       return;
     }
 
@@ -331,8 +325,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         session,
         loading,
         isConfigured: isSupabaseConfigured,
-        isDemoMode,
-        isDemo,
         isAuthenticated,
         isPasswordRecovery,
         signUp,

@@ -98,13 +98,13 @@ export const Layout: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [reportSheetOpen, setReportSheetOpen] = useState(false);
   const { notifications, matches } = useData();
-  const { user, profile, isAuthenticated, isDemo, signOut } = useAuth();
+  const { user, profile, isAuthenticated, signOut } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const unreadCount = notifications.filter(n => !n.read).length;
   const pendingMatchCount = matches.filter(m => m.status === 'pending').length;
 
-  const displayName = profile?.name || user?.name || (isDemo ? 'Alex Johnson' : 'Student');
+  const displayName = profile?.name || user?.name || 'Student';
   const avatarLetter = displayName.charAt(0).toUpperCase() || 'U';
 
   const handleSignOut = async () => {
@@ -243,22 +243,6 @@ export const Layout: React.FC = () => {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-            {isDemo && (
-              <span style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                padding: '4px 10px',
-                borderRadius: '999px',
-                backgroundColor: 'rgba(217, 119, 6, 0.08)',
-                color: '#B45309',
-                border: '1px solid rgba(217, 119, 6, 0.2)',
-                fontSize: '0.74rem',
-                fontWeight: 600,
-                letterSpacing: '0.02em'
-              }}>
-                Demo Active
-              </span>
-            )}
 
             <button 
               className="btn btn-ghost" 
@@ -316,38 +300,6 @@ export const Layout: React.FC = () => {
                   <span style={{ fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-main)' }}>{displayName.split(' ')[0]}</span>
                   <span style={{ fontSize: '0.68rem', color: '#16A34A', fontWeight: 600 }}>Online</span>
                 </div>
-              </div>
-            ) : isDemo ? (
-              <div 
-                style={{ 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  gap: '8px', 
-                  cursor: 'pointer',
-                  padding: '4px 12px 4px 6px',
-                  borderRadius: '999px',
-                  backgroundColor: 'rgba(254, 243, 199, 0.8)',
-                  border: '1px solid #FDE68A',
-                  transition: 'var(--transition)'
-                }}
-                onClick={() => navigate('/profile')}
-                title="Demo Account (Alex Johnson)"
-              >
-                <div style={{
-                  width: '28px',
-                  height: '28px',
-                  borderRadius: '50%',
-                  backgroundColor: '#B45309',
-                  color: '#FFFFFF',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontWeight: 700,
-                  fontSize: '0.82rem'
-                }}>
-                  {avatarLetter}
-                </div>
-                <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#92400E' }}>Alex</span>
               </div>
             ) : (
               <button
@@ -423,8 +375,8 @@ export const Layout: React.FC = () => {
                     </div>
                     <div>
                       <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>{displayName}</div>
-                      <div style={{ fontSize: '0.72rem', color: isDemo ? '#B45309' : 'var(--text-muted)' }}>
-                        {isDemo ? 'Demo Mode' : profile?.email || user?.email || 'Student'}
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                        {profile?.email || user?.email || 'Campus Student'}
                       </div>
                     </div>
                   </div>

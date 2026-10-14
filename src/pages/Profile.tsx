@@ -4,11 +4,11 @@ import { useAuth } from '../store/AuthContext';
 import { useData } from '../store/DataContext';
 import { 
   Mail, Shield, User as UserIcon, LogOut, CheckCircle2, 
-  AlertCircle, Database, LogIn, FolderOpen, Sparkles, ChevronRight 
+  AlertCircle, Database, FolderOpen, Sparkles, ChevronRight 
 } from 'lucide-react';
 
 export const Profile: React.FC = () => {
-  const { user, profile, isDemo, isConfigured, isAuthenticated, signOut } = useAuth();
+  const { user, profile, isAuthenticated, signOut } = useAuth();
   const { reports, matches } = useData();
   const [loggingOut, setLoggingOut] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -27,7 +27,7 @@ export const Profile: React.FC = () => {
     }
   };
 
-  const displayName = profile?.name || user?.name || 'Student User';
+  const displayName = profile?.name || user?.name || 'Campus Student';
   const displayEmail = profile?.email || user?.email || 'student@university.edu';
   const displayId = profile?.id || user?.id || '—';
   const avatarLetter = displayName.charAt(0).toUpperCase() || 'U';
@@ -71,17 +71,6 @@ export const Profile: React.FC = () => {
               <span>{loggingOut ? 'Signing out...' : 'Sign Out'}</span>
             </button>
           )}
-
-          {isDemo && isConfigured && (
-            <button
-              onClick={() => navigate('/login')}
-              className="btn btn-primary"
-              style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.84rem', padding: '8px 18px' }}
-            >
-              <LogIn size={15} />
-              <span>Connect Live Account</span>
-            </button>
-          )}
         </div>
       </div>
 
@@ -104,52 +93,25 @@ export const Profile: React.FC = () => {
       )}
 
       {/* Account Type Banner */}
-      {isDemo ? (
-        <div style={{
-          display: 'flex',
-          alignItems: 'flex-start',
-          gap: '14px',
-          padding: '18px 20px',
-          backgroundColor: '#FEF3C7',
-          border: '1px solid #FDE68A',
-          borderRadius: '8px',
-          color: '#92400E',
-          marginBottom: '24px',
-          fontSize: '0.88rem',
-          lineHeight: 1.55
-        }}>
-          <AlertCircle size={18} style={{ flexShrink: 0, marginTop: '2px', color: '#B45309' }} />
-          <div>
-            <strong style={{ display: 'block', marginBottom: '2px', color: '#78350F', fontFamily: 'var(--font-mono)', fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-              DEMO CREDENTIAL MODE ACTIVE
-            </strong>
-            <span>
-              Operating under local demonstration profile ({displayName}). Reports and changes are preserved locally in browser session storage.
-              {isConfigured ? ' Live Supabase instance connected — you can sign in with your campus account at any time.' : ' Configure environment parameters to enable live multi-user persistence.'}
-            </span>
-          </div>
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '14px',
+        padding: '16px 20px',
+        backgroundColor: '#ECFDF5',
+        border: '1px solid #A7F3D0',
+        borderRadius: '8px',
+        color: '#065F46',
+        marginBottom: '24px',
+        fontSize: '0.88rem'
+      }}>
+        <CheckCircle2 size={18} style={{ color: '#047857', flexShrink: 0 }} />
+        <div>
+          <strong style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            AUTHENTICATED LIVE SESSION:
+          </strong> Logged in via Supabase Auth with Row-Level Security active.
         </div>
-      ) : (
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '14px',
-          padding: '16px 20px',
-          backgroundColor: '#ECFDF5',
-          border: '1px solid #A7F3D0',
-          borderRadius: '8px',
-          color: '#065F46',
-          marginBottom: '24px',
-          fontSize: '0.88rem'
-        }}>
-          <CheckCircle2 size={18} style={{ color: '#047857', flexShrink: 0 }} />
-          <div>
-            <strong style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-              AUTHENTICATED LIVE SESSION:
-            </strong> Logged in via Supabase Auth with Row-Level Security active.
-          </div>
-        </div>
-      )}
+      </div>
 
       {/* Quick Navigation Cards */}
       <div className="profile-nav-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px', marginBottom: '24px' }}>
@@ -254,14 +216,14 @@ export const Profile: React.FC = () => {
             borderRadius: '999px',
             fontSize: '0.78rem',
             fontWeight: 650,
-            backgroundColor: isDemo ? 'rgba(254, 243, 199, 0.9)' : 'rgba(240, 253, 244, 0.9)',
-            color: isDemo ? '#B45309' : '#15803D',
-            border: `1px solid ${isDemo ? 'rgba(217, 119, 6, 0.25)' : 'rgba(22, 163, 74, 0.25)'}`,
+            backgroundColor: 'rgba(240, 253, 244, 0.9)',
+            color: '#15803D',
+            border: '1px solid rgba(22, 163, 74, 0.25)',
             backdropFilter: 'blur(12px)',
             boxShadow: 'var(--glass-specular-soft)'
           }}>
-            {isDemo ? <AlertCircle size={14} /> : <CheckCircle2 size={14} />}
-            {isDemo ? 'Demo User Profile' : 'Verified Campus Student'}
+            <CheckCircle2 size={14} />
+            Verified Campus Student
           </span>
         </div>
 
@@ -322,9 +284,7 @@ export const Profile: React.FC = () => {
                 color: 'var(--text-main)'
               }}>
                 <Shield size={16} style={{ color: 'var(--primary)' }} />
-                <span>
-                  {isAuthenticated ? 'Supabase Auth (JWT with RLS Enforcement)' : 'Local Storage Demo Authentication'}
-                </span>
+                <span>Supabase Auth (JWT with RLS Enforcement)</span>
               </div>
             </div>
           </div>
@@ -341,7 +301,7 @@ export const Profile: React.FC = () => {
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
               <Database size={16} />
-              <span>Backend status: {isConfigured ? 'Supabase Connected' : 'Demo Local Mode'}</span>
+              <span>Backend status: Supabase Connected</span>
             </div>
 
             {isAuthenticated && (

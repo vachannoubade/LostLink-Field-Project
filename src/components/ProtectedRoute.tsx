@@ -5,7 +5,7 @@ import { PackageSearch } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 export const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { session, loading, isConfigured, isDemoMode } = useAuth();
+  const { session, loading } = useAuth();
   const location = useLocation();
 
   if (loading) {
@@ -45,8 +45,8 @@ export const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ childr
     );
   }
 
-  // If Supabase is configured and the user has no active session, redirect to login
-  if (isConfigured && !session && !isDemoMode) {
+  // If the user has no active session, redirect to login
+  if (!session) {
     const redirectUrl = `/login?redirectTo=${encodeURIComponent(location.pathname + location.search)}`;
     return <Navigate to={redirectUrl} replace />;
   }

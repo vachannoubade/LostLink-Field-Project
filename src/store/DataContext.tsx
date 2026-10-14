@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import type { Report, Match, User, Notification } from '../types';
-import { initialReports, demoUser, initialNotifications } from './seedData';
+import { CAMPUS_ZONES } from '../utils/categoryArt';
 import { generateMatches } from '../utils/matching';
 import { useAuth } from './AuthContext';
 import { supabase } from '../lib/supabase';
@@ -9,15 +9,11 @@ import {
   batchResolveSignedUrls,
   getReportImageSignedUrl,
   deleteReportImage,
-  clearSignedUrlCache
 } from '../lib/storage';
 
 // ---------------------------------------------------------------------------
 // Supabase row ↔ frontend Report type adapters
 // ---------------------------------------------------------------------------
-// The Supabase `reports` table uses snake_case columns (user_id, image_url,
-// created_at), while the frontend Report interface uses camelCase. These two
-// helpers convert between the two representations.
 
 interface SupabaseReportRow {
   id: string;
@@ -56,21 +52,32 @@ interface SupabaseNotificationRow {
   created_at: string;
 }
 
-const rowToReport = (row: SupabaseReportRow, signedUrl?: string): Report => ({
-  id: row.id,
-  type: row.type,
-  title: row.title,
-  category: row.category,
-  description: row.description,
-  location: row.location,
-  date: row.date,
-  time: row.time ?? undefined,
-  imageUrl: isStoragePath(row.image_url) ? signedUrl : (row.image_url ?? undefined),
-  imagePath: isStoragePath(row.image_url) ? (row.image_url ?? undefined) : undefined,
-  status: row.status,
-  userId: row.user_id,
-  createdAt: row.created_at,
-});
+const rowToReport = (row: SupabaseReportRow, signedUrl?: string): Report => {
+  let detectedZone: string | undefined = undefined;
+  for (const zone of CAMPUS_ZONES) {
+    if (row.location.toLowerCase().includes(zone.toLowerCase())) {
+      detectedZone = zone;
+      break;
+    }
+  }
+
+  return {
+    id: row.id,
+    type: row.type,
+    title: row.title,
+    category: row.category,
+    description: row.description,
+    location: row.location,
+    campusZone: detectedZone,
+    date: row.date,
+    time: row.time ?? undefined,
+    imageUrl: isStoragePath(row.image_url) ? signedUrl : (row.image_url ?? undefined),
+    imagePath: isStoragePath(row.image_url) ? (row.image_url ?? undefined) : undefined,
+    status: row.status,
+    userId: row.user_id,
+    createdAt: row.created_at,
+  };
+};
 
 const rowToMatch = (row: SupabaseMatchRow): Match => ({
   id: row.id,
@@ -143,7 +150,6 @@ export interface DataContextType {
   rejectMatch: (matchId: string) => void;
   markNotificationRead: (id: string) => void;
   markAllNotificationsRead: () => void;
-  resetDemoData: () => void;
   refreshReports: () => Promise<void>;
 }
 
@@ -155,37 +161,15 @@ const DataContext = createContext<DataContextType | undefined>(undefined);
 
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const auth = useAuth();
-  const isDemo = auth.isDemoMode;
-  const user: User = auth.user || (isDemo ? demoUser : { id: '', name: 'Student', email: '', isDemo: false });
+  const user: User = auth.user || { id: '', name: 'Campus Student', email: '' };
 
   // -----------------------------------------------------------------------
   // State
   // -----------------------------------------------------------------------
-  const [reports, setReports] = useState<Report[]>(() => {
-    if (isDemo) {
-      const saved = localStorage.getItem('lostlink_reports');
-      return saved ? JSON.parse(saved) : initialReports;
-    }
-    return [];
-  });
-
-  const [matches, setMatches] = useState<Match[]>(() => {
-    if (isDemo) {
-      const saved = localStorage.getItem('lostlink_matches');
-      return saved ? JSON.parse(saved) : [];
-    }
-    return [];
-  });
-
-  const [notifications, setNotifications] = useState<Notification[]>(() => {
-    if (isDemo) {
-      const saved = localStorage.getItem('lostlink_notifications');
-      return saved ? JSON.parse(saved) : initialNotifications;
-    }
-    return [];
-  });
-
-  const [loading, setLoading] = useState<boolean>(!isDemo);
+  const [reports, setReports] = useState<Report[]>([]);
+  const [matches, setMatches] = useState<Match[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
   const matchesRef = useRef<Match[]>(matches);
@@ -194,33 +178,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [matches]);
 
   // -----------------------------------------------------------------------
-  // Demo-only: persist to localStorage
-  // -----------------------------------------------------------------------
-  useEffect(() => {
-    if (!isDemo) return;
-    localStorage.setItem('lostlink_reports', JSON.stringify(reports));
-  }, [reports, isDemo]);
-
-  useEffect(() => {
-    if (!isDemo) return;
-    localStorage.setItem('lostlink_matches', JSON.stringify(matches));
-  }, [matches, isDemo]);
-
-  useEffect(() => {
-    if (!isDemo) return;
-    localStorage.setItem('lostlink_notifications', JSON.stringify(notifications));
-  }, [notifications, isDemo]);
-
-  // -----------------------------------------------------------------------
-  // Supabase: Fetch all shared reports, matches, and notifications
+  // Supabase: Fetch shared reports, user notifications, and cross-reference matches
   // -----------------------------------------------------------------------
   const fetchData = useCallback(async () => {
-    if (isDemo || !supabase) return;
+    if (!supabase) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
 
     try {
-      // 1. Fetch shared reports
+      // 1. Fetch shared reports (accessible publicly to all visitors per Supabase RLS)
       const { data: reportsData, error: reportsError } = await supabase
         .from('reports')
         .select('*')
@@ -247,7 +216,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return rowToReport(row, signedUrl);
       }));
 
-      // 2. Fetch matches (if present in database, otherwise populated by client correlation engine)
+      // 2. Fetch authenticated user data (matches & notifications)
       if (auth.isAuthenticated) {
         const { data: matchesData, error: matchesError } = await supabase
           .from('matches')
@@ -260,7 +229,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setMatches(matchesData.map(rowToMatch));
         }
 
-        // 3. Fetch notifications (RLS enforces user sees only their own notifications)
         const { data: notifsData, error: notifsError } = await supabase
           .from('notifications')
           .select('*')
@@ -272,7 +240,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setNotifications(notifsData.map(rowToNotification));
         }
       } else {
-        setMatches([]);
         setNotifications([]);
       }
     } catch (err) {
@@ -280,46 +247,22 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       setLoading(false);
     }
-  }, [isDemo, auth.isAuthenticated]);
+  }, [auth.isAuthenticated]);
 
-  // Synchronize with auth state changes:
+  // Synchronize with auth state changes
   useEffect(() => {
-    // If auth is still checking initial session, keep loading state active and wait
     if (auth.loading) {
       setLoading(true);
       return;
     }
 
-    if (!isDemo && supabase) {
-      if (auth.isAuthenticated) {
-        fetchData();
-      } else {
-        clearSignedUrlCache();
-        setReports([]);
-        setMatches([]);
-        setNotifications([]);
-        setError(null);
-        setLoading(false);
-      }
+    if (supabase) {
+      fetchData();
     }
-  }, [auth.loading, isDemo, auth.isAuthenticated, auth.user?.id, fetchData]);
-
-  // When transitioning to demo mode, load demo data from localStorage / seeds
-  useEffect(() => {
-    if (isDemo) {
-      const saved = localStorage.getItem('lostlink_reports');
-      setReports(saved ? JSON.parse(saved) : initialReports);
-      const savedMatches = localStorage.getItem('lostlink_matches');
-      setMatches(savedMatches ? JSON.parse(savedMatches) : []);
-      const savedNotifs = localStorage.getItem('lostlink_notifications');
-      setNotifications(savedNotifs ? JSON.parse(savedNotifs) : initialNotifications);
-      setLoading(false);
-      setError(null);
-    }
-  }, [isDemo]);
+  }, [auth.loading, auth.isAuthenticated, auth.user?.id, fetchData]);
 
   // -----------------------------------------------------------------------
-  // Recalculate matches whenever reports change (Demo & Authenticated)
+  // Recalculate matches whenever reports change
   // -----------------------------------------------------------------------
   useEffect(() => {
     if (reports.length === 0) {
@@ -327,7 +270,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
 
-    const storageKey = isDemo ? 'lostlink_matches' : `lostlink_match_decisions_${user.id || 'auth'}`;
+    const storageKey = `lostlink_match_decisions_${user.id || 'auth'}`;
     const savedDecisions: Record<string, 'pending' | 'verified' | 'rejected'> = {};
     try {
       const raw = localStorage.getItem(storageKey);
@@ -378,7 +321,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return (lost?.userId === user.id || found?.userId === user.id);
     });
 
-    if (newMatchesForUser.length > 0) {
+    if (newMatchesForUser.length > 0 && user.id) {
       const newNotifs: Notification[] = newMatchesForUser.map(m => ({
         id: `n_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         userId: user.id,
@@ -391,29 +334,15 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       setNotifications(prev => [...newNotifs, ...prev]);
     }
-  }, [reports, user.id, isDemo]);
+  }, [reports, user.id]);
 
   // -----------------------------------------------------------------------
-  // CRUD Operations
+  // Real CRUD Operations (Supabase Only)
   // -----------------------------------------------------------------------
 
   const addReport = useCallback(async (
     reportData: Omit<Report, 'id' | 'createdAt' | 'status' | 'userId'>
   ): Promise<{ success: boolean; error?: string }> => {
-    // --- Demo mode ---
-    if (isDemo) {
-      const newReport: Report = {
-        ...reportData,
-        id: `r_${Date.now()}`,
-        status: reportData.type === 'lost' ? 'lost' : 'found',
-        userId: user.id,
-        createdAt: new Date().toISOString()
-      };
-      setReports(prev => [newReport, ...prev]);
-      return { success: true };
-    }
-
-    // --- Authenticated mode ---
     if (!supabase) return { success: false, error: 'Database connection not available' };
     const activeUserId = auth.session?.user?.id || auth.user?.id;
     if (!auth.isAuthenticated || !activeUserId) {
@@ -444,35 +373,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : 'Failed to create report' };
     }
-  }, [isDemo, auth.isAuthenticated, auth.session, auth.user, user.id]);
+  }, [auth.isAuthenticated, auth.session, auth.user]);
 
   const updateReport = useCallback(async (
     id: string,
     updates: Partial<Omit<Report, 'id' | 'userId' | 'createdAt'>>,
   ): Promise<{ success: boolean; error?: string }> => {
-    // --- Demo mode ---
-    if (isDemo) {
-      const report = reports.find(r => r.id === id);
-      if (!report) return { success: false, error: 'Report not found' };
-      if (report.userId !== user.id) return { success: false, error: 'Permission denied' };
-
-      setReports(prev => prev.map(r => {
-        if (r.id === id) {
-          return {
-            ...r,
-            ...updates,
-            id: r.id,
-            userId: r.userId,
-            createdAt: r.createdAt
-          };
-        }
-        return r;
-      }));
-
-      return { success: true };
-    }
-
-    // --- Authenticated mode ---
     if (!supabase) return { success: false, error: 'Database connection not available' };
     if (!auth.isAuthenticated) {
       return { success: false, error: 'You must be signed in to update a report.' };
@@ -522,22 +428,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : 'Failed to update report' };
     }
-  }, [isDemo, auth.isAuthenticated, user.id, reports]);
+  }, [auth.isAuthenticated]);
 
   const deleteReport = useCallback(async (id: string): Promise<{ success: boolean; error?: string }> => {
     const reportToDelete = reports.find(r => r.id === id);
 
-    // --- Demo mode ---
-    if (isDemo) {
-      if (!reportToDelete) return { success: false, error: 'Report not found' };
-      if (reportToDelete.userId !== user.id) return { success: false, error: 'Permission denied' };
-
-      setReports(prev => prev.filter(r => r.id !== id));
-      setMatches(prev => prev.filter(m => m.lostReportId !== id && m.foundReportId !== id));
-      return { success: true };
-    }
-
-    // --- Authenticated mode ---
     if (!supabase) return { success: false, error: 'Database connection not available' };
     if (!auth.isAuthenticated) {
       return { success: false, error: 'You must be signed in to delete a report.' };
@@ -569,26 +464,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : 'Failed to delete report' };
     }
-  }, [isDemo, auth.isAuthenticated, user.id, reports]);
+  }, [auth.isAuthenticated, user.id, reports]);
 
   const resolveReport = useCallback(async (id: string): Promise<{ success: boolean; error?: string }> => {
-    // --- Demo mode ---
-    if (isDemo) {
-      const report = reports.find(r => r.id === id);
-      if (!report) return { success: false, error: 'Report not found' };
-      if (report.userId !== user.id) return { success: false, error: 'Permission denied' };
-      if (report.status === 'resolved') return { success: false, error: 'Already resolved' };
-
-      setReports(prev => prev.map(r => r.id === id ? { ...r, status: 'resolved' as const } : r));
-      setMatches(prev => prev.map(m => 
-        (m.lostReportId === id || m.foundReportId === id) && m.status === 'pending' 
-          ? { ...m, status: 'rejected' as const } 
-          : m
-      ));
-      return { success: true };
-    }
-
-    // --- Authenticated mode: use resolve_report RPC ---
     if (!supabase) return { success: false, error: 'Database connection not available' };
     if (!auth.isAuthenticated) {
       return { success: false, error: 'You must be signed in to resolve a report.' };
@@ -618,7 +496,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : 'Failed to resolve report' };
     }
-  }, [isDemo, auth.isAuthenticated, user.id, reports]);
+  }, [auth.isAuthenticated]);
 
   const updateReportStatus = (id: string, status: Report['status']) => {
     setReports(prev => prev.map(r => r.id === id ? { ...r, status } : r));
@@ -628,51 +506,42 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setMatches(prev => {
       const updated = prev.map(m => m.id === matchId ? { ...m, status: 'verified' as const } : m);
       try {
-        const storageKey = isDemo ? 'lostlink_matches' : `lostlink_match_decisions_${user.id || 'auth'}`;
+        const storageKey = `lostlink_match_decisions_${user.id || 'auth'}`;
         localStorage.setItem(storageKey, JSON.stringify(updated));
       } catch {}
       return updated;
     });
-  }, [isDemo, user.id]);
+  }, [user.id]);
 
   const rejectMatch = useCallback((matchId: string) => {
     setMatches(prev => {
       const updated = prev.map(m => m.id === matchId ? { ...m, status: 'rejected' as const } : m);
       try {
-        const storageKey = isDemo ? 'lostlink_matches' : `lostlink_match_decisions_${user.id || 'auth'}`;
+        const storageKey = `lostlink_match_decisions_${user.id || 'auth'}`;
         localStorage.setItem(storageKey, JSON.stringify(updated));
       } catch {}
       return updated;
     });
-  }, [isDemo, user.id]);
+  }, [user.id]);
 
   const markNotificationRead = useCallback((id: string) => {
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
-    if (!isDemo && supabase) {
+    if (supabase) {
       supabase.from('notifications').update({ read: true }).eq('id', id).then(({ error: updateErr }) => {
         if (updateErr) console.error('Failed to update notification in database:', updateErr);
       });
     }
-  }, [isDemo]);
+  }, []);
 
   const markAllNotificationsRead = useCallback(() => {
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
     const activeUserId = auth.session?.user?.id || auth.user?.id;
-    if (!isDemo && supabase && activeUserId) {
+    if (supabase && activeUserId) {
       supabase.from('notifications').update({ read: true }).eq('user_id', activeUserId).then(({ error: updateErr }) => {
         if (updateErr) console.error('Failed to update all notifications in database:', updateErr);
       });
     }
-  }, [isDemo, auth.session, auth.user]);
-
-  const resetDemoData = () => {
-    localStorage.removeItem('lostlink_reports');
-    localStorage.removeItem('lostlink_matches');
-    localStorage.removeItem('lostlink_notifications');
-    setReports(initialReports);
-    setMatches([]);
-    setNotifications(initialNotifications);
-  };
+  }, [auth.session, auth.user]);
 
   const refreshReports = useCallback(async () => {
     await fetchData();
@@ -683,7 +552,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       user, reports, matches, notifications, loading, error,
       addReport, updateReport, deleteReport, resolveReport,
       updateReportStatus, verifyMatch, rejectMatch, 
-      markNotificationRead, markAllNotificationsRead, resetDemoData,
+      markNotificationRead, markAllNotificationsRead,
       refreshReports
     }}>
       {children}
