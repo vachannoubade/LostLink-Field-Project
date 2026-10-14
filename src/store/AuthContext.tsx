@@ -2,7 +2,6 @@ import React, { createContext, useContext, useState, useEffect, useCallback, typ
 import type { Session, AuthError } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import type { User } from '../types';
-import { demoUser } from './seedData';
 
 export interface UserProfile {
   id: string;
@@ -42,14 +41,11 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [session, setSession] = useState<Session | null>(null);
-  const [user, setUser] = useState<User | null>(() => {
-    // If Supabase is not configured, initialize with demo user
-    return !isSupabaseConfigured ? demoUser : null;
-  });
+  const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState<boolean>(isSupabaseConfigured);
 
-  const isDemoMode = !isSupabaseConfigured || (!loading && !session && Boolean(user?.isDemo));
-  const isAuthenticated = Boolean(!loading && session && user && !user.isDemo);
+  const isDemoMode = false;
+  const isAuthenticated = Boolean(!loading && session && user);
   const isDemo = isDemoMode;
 
   const [isPasswordRecovery, setIsPasswordRecovery] = useState<boolean>(() => {
@@ -177,7 +173,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const signUp = async (email: string, password: string, name: string): Promise<SignUpResult> => {
     if (!supabase) {
-      return { error: new Error('Supabase is not configured. Running in Demo Mode.'), hasSession: false, needsEmailConfirmation: false };
+      return { 
+        error: new Error('Supabase configuration missing: VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY must be configured in .env.local.'), 
+        hasSession: false, 
+        needsEmailConfirmation: false 
+      };
     }
 
     try {
@@ -221,7 +221,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const signIn = async (email: string, password: string) => {
     if (!supabase) {
-      return { error: new Error('Supabase is not configured. Running in Demo Mode.') };
+      return { error: new Error('Supabase configuration missing: VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY must be configured in .env.local.') };
     }
 
     try {
@@ -249,7 +249,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const resetPassword = async (email: string): Promise<{ error: AuthError | Error | null }> => {
     if (!supabase) {
-      return { error: new Error('Supabase is not configured. Running in Demo Mode.') };
+      return { error: new Error('Supabase configuration missing: VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY must be configured in .env.local.') };
     }
 
     try {
@@ -267,7 +267,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const updatePassword = async (password: string): Promise<{ error: AuthError | Error | null }> => {
     if (!supabase) {
-      return { error: new Error('Supabase is not configured. Running in Demo Mode.') };
+      return { error: new Error('Supabase configuration missing: VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY must be configured in .env.local.') };
     }
 
     try {
@@ -287,7 +287,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const resendConfirmation = async (email: string): Promise<{ error: AuthError | Error | null }> => {
     if (!supabase) {
-      return { error: new Error('Supabase is not configured. Running in Demo Mode.') };
+      return { error: new Error('Supabase configuration missing: VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY must be configured in .env.local.') };
     }
 
     try {
@@ -313,11 +313,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
     setSession(null);
     setIsPasswordRecovery(false);
-    if (!isSupabaseConfigured) {
-      setUser(demoUser);
-    } else {
-      setUser(null);
-    }
+    setUser(null);
   };
 
   const profile: UserProfile | null = user ? {

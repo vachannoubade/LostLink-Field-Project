@@ -4,7 +4,7 @@ import { useAuth } from '../store/AuthContext';
 import { 
   PackageSearch, Mail, Lock, User, Eye, EyeOff, 
   AlertCircle, CheckCircle2, ArrowRight, ArrowLeft,
-  KeyRound, RefreshCw, Info
+  KeyRound, RefreshCw
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 
@@ -307,26 +307,17 @@ export const Auth: React.FC<{ defaultMode?: 'login' | 'signup' }> = ({ defaultMo
           style={{ 
             padding: '16px 20px', 
             marginBottom: '20px', 
-            backgroundColor: 'var(--primary-light)', 
-            borderColor: 'rgba(81, 70, 229, 0.2)',
+            backgroundColor: 'var(--danger-light)', 
+            borderColor: 'rgba(239, 68, 68, 0.25)',
             display: 'flex',
             alignItems: 'flex-start',
             gap: '12px'
           }}
+          role="alert"
         >
-          <Info size={20} color="var(--primary)" style={{ flexShrink: 0, marginTop: '2px' }} />
-          <div style={{ fontSize: '0.875rem', color: 'var(--text-main)', lineHeight: 1.5 }}>
-            <strong>Demo Mode Active:</strong> Supabase environment variables are not yet configured. You can explore the platform as the default campus student account.
-            <div style={{ marginTop: '8px' }}>
-              <button 
-                type="button"
-                className="btn btn-primary" 
-                style={{ padding: '6px 14px', fontSize: '0.8rem' }}
-                onClick={() => navigate(redirectTo)}
-              >
-                Continue in Demo Mode
-              </button>
-            </div>
+          <AlertCircle size={20} color="var(--danger)" style={{ flexShrink: 0, marginTop: '2px' }} />
+          <div style={{ fontSize: '0.875rem', color: 'var(--danger)', lineHeight: 1.5 }}>
+            <strong>Supabase Configuration Missing:</strong> Required environment variables (<code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_ANON_KEY</code>) are not loaded. Please verify that <code>.env.local</code> exists in your project directory.
           </div>
         </div>
       )}
