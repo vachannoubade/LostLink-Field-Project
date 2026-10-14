@@ -1,10 +1,31 @@
-import type { Report, User } from '../types';
+import type { Report, User, Notification } from '../types';
 
 export const demoUser: User = {
   id: 'u_1',
   name: 'Alex Johnson',
   email: 'alex.j@fictional.edu'
 };
+
+export const initialNotifications: Notification[] = [
+  {
+    id: 'n_1',
+    userId: 'u_1',
+    title: 'Potential Match Alert',
+    message: 'A potential match was detected for your reported "Blue Hydro Flask".',
+    read: false,
+    createdAt: '2023-10-10T09:30:00Z',
+    link: '/items/r_3'
+  },
+  {
+    id: 'n_2',
+    userId: 'u_1',
+    title: 'Welcome to LostLink',
+    message: 'Welcome to campus Lost & Found. You can report items or search existing campus listings.',
+    read: true,
+    createdAt: '2023-10-08T10:00:00Z',
+    link: '/browse'
+  }
+];
 
 export const initialReports: Report[] = [
   {
