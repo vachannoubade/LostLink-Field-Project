@@ -57,6 +57,14 @@ export const supabase: SupabaseClient | null = isSupabaseConfigured
     })
   : null;
 
+if (!isSupabaseConfigured && typeof window !== 'undefined') {
+  const status = getSupabaseConfigStatus();
+  console.warn(
+    `[LostLink Supabase] Configuration missing: ${status.missing.join(', ')}. ` +
+    'Please verify that .env.local exists in your project directory and contains VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.'
+  );
+}
+
 /**
  * Helper to retrieve the Supabase client instance.
  * Throws a descriptive error only if called when Supabase is not configured,

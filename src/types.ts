@@ -60,7 +60,6 @@ export interface User {
   id: string;
   name: string;
   email: string;
-  isDemo?: boolean;
 
   // Optional campus profile attributes
   role?: string;

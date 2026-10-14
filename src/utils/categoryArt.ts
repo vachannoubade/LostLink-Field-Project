@@ -84,3 +84,12 @@ export const CATEGORY_OPTIONS: CategoryOption[] = [
   { value: 'Bags', emoji: '🎒', hint: 'Backpacks, totes, pouches' },
   { value: 'Other', emoji: '📦', hint: 'Clothing, athletic gear, and misc' }
 ];
+
+export const CAMPUS_ZONES = [
+  'Main Library',
+  'Student Union',
+  'Science Building',
+  'Dining Hall',
+  'Sports Complex',
+  'Hostel Quad'
+] as const;
