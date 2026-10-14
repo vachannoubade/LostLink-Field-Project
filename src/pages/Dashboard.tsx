@@ -66,7 +66,7 @@ export const Dashboard: React.FC = () => {
 
       <div className="grid grid-cols-4 gap-6">
         {recentReports.map(report => (
-          <ItemCard key={report.id} item={report} onClick={() => navigate(`/browse?id=${report.id}`)} />
+          <ItemCard key={report.id} item={report} onClick={() => navigate(`/items/${report.id}`)} />
         ))}
         {recentReports.length === 0 && (
           <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '64px 24px', backgroundColor: 'var(--bg-card)', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>

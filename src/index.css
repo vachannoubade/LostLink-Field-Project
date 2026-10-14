@@ -229,6 +229,30 @@ h1, h2, h3, h4, h5, h6 {
   color: var(--text-main);
 }
 
+.btn-danger {
+  background-color: var(--danger);
+  color: white;
+  box-shadow: 0 4px 12px rgba(229, 62, 62, 0.2);
+}
+
+.btn-danger:hover {
+  background-color: #C53030;
+  box-shadow: 0 6px 16px rgba(229, 62, 62, 0.3);
+  transform: translateY(-1px);
+}
+
+.btn-success {
+  background-color: var(--success);
+  color: white;
+  box-shadow: 0 4px 12px rgba(56, 161, 105, 0.2);
+}
+
+.btn-success:hover {
+  background-color: #2F855A;
+  box-shadow: 0 6px 16px rgba(56, 161, 105, 0.3);
+  transform: translateY(-1px);
+}
+
 /* Forms */
 .form-group {
   margin-bottom: 1.25rem;
@@ -326,4 +350,10 @@ h1, h2, h3, h4, h5, h6 {
   .card:hover {
     box-shadow: var(--shadow-sm); /* No hover effect on mobile */
   }
+}
+
+/* Spinner animation for Loader2 icons */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }

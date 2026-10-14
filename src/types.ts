@@ -12,6 +12,7 @@ export interface Report {
   date: string; // ISO date or simple date string
   time?: string;
   imageUrl?: string;
+  imagePath?: string;
   status: ItemStatus;
   userId: string;
   createdAt: string;
@@ -35,6 +36,7 @@ export interface User {
   id: string;
   name: string;
   email: string;
+  isDemo?: boolean;
 }
 
 export interface Notification {

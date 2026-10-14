@@ -3,20 +3,34 @@ import type { Report } from '../types';
 import { MapPin, Calendar, Tag, Image as ImageIcon } from 'lucide-react';
 import { motion } from 'framer-motion';
 
-export const ItemCard: React.FC<{ item: Report; onClick?: () => void }> = ({ item, onClick }) => {
+export const ItemCard: React.FC<{ item: Report; onClick?: () => void; actions?: React.ReactNode }> = ({ item, onClick, actions }) => {
+  const [imageError, setImageError] = React.useState(false);
+
   return (
     <motion.div 
       className="card" 
       style={{ cursor: onClick ? 'pointer' : 'default', display: 'flex', flexDirection: 'column', height: '100%', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }} 
       onClick={onClick}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={onClick ? (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onClick();
+        }
+      } : undefined}
+      aria-label={onClick ? `View details for ${item.title}` : undefined}
       whileHover={onClick ? { y: -4, boxShadow: 'var(--shadow-lg)' } : {}}
       transition={{ duration: 0.2 }}
     >
       <div style={{ height: '180px', backgroundColor: '#F1F3F9', position: 'relative', overflow: 'hidden' }}>
-        {item.imageUrl && !item.imageUrl.startsWith('blob:') ? (
-          <img src={item.imageUrl} alt={item.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-        ) : item.imageUrl && item.imageUrl.startsWith('blob:') ? (
-          <img src={item.imageUrl} alt={item.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        {item.imageUrl && !imageError ? (
+          <img 
+            src={item.imageUrl} 
+            alt={item.title} 
+            onError={() => setImageError(true)}
+            style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+          />
         ) : (
           <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#CBD5E1', flexDirection: 'column', gap: '8px' }}>
             <ImageIcon size={48} strokeWidth={1.5} />
@@ -54,6 +68,24 @@ export const ItemCard: React.FC<{ item: Report; onClick?: () => void }> = ({ ite
         <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', lineHeight: 1.6 }}>
           {item.description}
         </p>
+
+        {actions && (
+          <div 
+            style={{ 
+              marginTop: '16px', 
+              paddingTop: '16px', 
+              borderTop: '1px solid var(--border)',
+              display: 'flex',
+              gap: '8px',
+              flexWrap: 'wrap',
+              alignItems: 'center'
+            }}
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
+            {actions}
+          </div>
+        )}
       </div>
     </motion.div>
   );
