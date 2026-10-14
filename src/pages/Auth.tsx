@@ -317,7 +317,7 @@ export const Auth: React.FC<{ defaultMode?: 'login' | 'signup' }> = ({ defaultMo
         >
           <AlertCircle size={20} color="var(--danger)" style={{ flexShrink: 0, marginTop: '2px' }} />
           <div style={{ fontSize: '0.875rem', color: 'var(--danger)', lineHeight: 1.5 }}>
-            <strong>Supabase Configuration Missing:</strong> Required environment variables (<code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_ANON_KEY</code>) are not loaded. Please verify that <code>.env.local</code> exists in your project directory.
+            <strong>Supabase Configuration Missing:</strong> Required environment variables (<code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_ANON_KEY</code>) are not loaded. On Vercel, please add them in <strong>Project Settings &gt; Environment Variables</strong> and redeploy. For local development, ensure <code>.env.local</code> exists in your project root.
           </div>
         </div>
       )}

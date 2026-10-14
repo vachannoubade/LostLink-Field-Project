@@ -1,10 +1,27 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
-// Read environment variables (trimmed and normalized to prevent trailing slash/rest/v1 issues)
-const rawUrl = import.meta.env.VITE_SUPABASE_URL?.trim();
+// Read environment variables (supports Vite, Next.js, and standard Supabase Vercel integration naming)
+const metaEnv = import.meta.env as Record<string, string | undefined>;
+
+const rawUrl = (
+  metaEnv.VITE_SUPABASE_URL ||
+  metaEnv.NEXT_PUBLIC_SUPABASE_URL ||
+  metaEnv.SUPABASE_URL
+)?.trim();
+
 const supabaseUrl = rawUrl ? rawUrl.replace(/\/rest\/v1\/?$/, '').replace(/\/+$/, '') : undefined;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim();
-const supabasePublishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim();
+
+const supabaseAnonKey = (
+  metaEnv.VITE_SUPABASE_ANON_KEY ||
+  metaEnv.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+  metaEnv.SUPABASE_ANON_KEY
+)?.trim();
+
+const supabasePublishableKey = (
+  metaEnv.VITE_SUPABASE_PUBLISHABLE_KEY ||
+  metaEnv.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+  metaEnv.SUPABASE_PUBLISHABLE_KEY
+)?.trim();
 
 // Support standard JWT-based anon key or newer Supabase publishable key format.
 // Both are public keys designed for client-side use with Row Level Security (RLS).
