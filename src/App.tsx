@@ -8,7 +8,6 @@ import { BrowseItems } from './pages/BrowseItems';
 import { ReportForm } from './pages/ReportForm';
 import { AIMatches } from './pages/AIMatches';
 import { MyReports } from './pages/MyReports';
-import { Admin } from './pages/Admin';
 import { ItemDetails } from './pages/ItemDetails';
 import { Notifications } from './pages/Notifications';
 import { Profile } from './pages/Profile';
@@ -90,9 +89,6 @@ function App() {
                   </ProtectedRoute>
                 )}
               />
-
-              {/* Admin Demo */}
-              <Route path="admin" element={<Admin />} />
 
               {/* Catch-all redirect */}
               <Route path="*" element={<Navigate to="/" replace />} />

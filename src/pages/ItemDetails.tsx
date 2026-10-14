@@ -2,18 +2,19 @@ import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useData } from '../store/DataContext';
 import { 
-  ArrowLeft, MapPin, Calendar, Tag, Clock, 
-  User as UserIcon, PackageSearch, Image as ImageIcon,
-  Sparkles, CheckCircle2, AlertCircle, Pencil, Trash2, Loader2
+  ArrowLeft, Tag, Clock, PackageSearch,
+  Sparkles, CheckCircle2, AlertCircle, Pencil, Trash2, Loader2,
+  Lock, ShieldCheck, Coffee, AlertTriangle
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { ConfirmModal } from '../components/ConfirmModal';
+import { getCategoryIllustration } from '../utils/categoryArt';
 
 export const ItemDetails: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { reports, user, deleteReport, resolveReport, loading } = useData();
-  const [imageError, setImageError] = useState(false);
+  const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [modalState, setModalState] = useState<{
@@ -21,10 +22,11 @@ export const ItemDetails: React.FC = () => {
   } | null>(null);
 
   const item = reports.find(r => r.id === id);
+  const imageError = Boolean(item?.imageUrl && failedImageUrl === item.imageUrl);
 
   if (loading) {
     return (
-      <div style={{ paddingBottom: '40px', maxWidth: '700px', margin: '0 auto', textAlign: 'center', padding: '80px 24px' }}>
+      <div style={{ paddingBottom: '40px', maxWidth: '800px', margin: '0 auto', textAlign: 'center', padding: '80px 24px' }}>
         <Loader2 size={40} style={{ animation: 'spin 1s linear infinite', margin: '0 auto 16px', color: 'var(--primary)' }} />
         <p style={{ color: 'var(--text-muted)' }}>Loading report details...</p>
       </div>
@@ -36,7 +38,7 @@ export const ItemDetails: React.FC = () => {
       <motion.div 
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        style={{ paddingBottom: '40px', maxWidth: '700px', margin: '0 auto' }}
+        style={{ paddingBottom: '40px', maxWidth: '800px', margin: '0 auto' }}
       >
         <button 
           onClick={() => navigate('/browse')} 
@@ -65,6 +67,7 @@ export const ItemDetails: React.FC = () => {
   }
 
   const isOwner = item.userId === user.id;
+  const catArt = getCategoryIllustration(item.category);
   const formattedDate = new Date(item.date).toLocaleDateString(undefined, {
     weekday: 'short',
     year: 'numeric',
@@ -113,142 +116,403 @@ export const ItemDetails: React.FC = () => {
 
   return (
     <motion.div 
-      initial={{ opacity: 0, y: 10 }}
+      initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.2 }}
-      style={{ paddingBottom: '48px', maxWidth: '800px', margin: '0 auto' }}
+      transition={{ duration: 0.22 }}
+      style={{ paddingBottom: '56px', maxWidth: '860px', margin: '0 auto' }}
     >
-      {/* Top back button */}
-      <div style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      {/* Top back button & badges bar */}
+      <div className="item-details-top-bar" style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
         <button 
           onClick={() => navigate('/browse')} 
-          className="btn btn-ghost"
-          style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', paddingLeft: '4px' }}
+          className="btn btn-secondary"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', padding: '7px 14px' }}
           aria-label="Back to Browse"
         >
-          <ArrowLeft size={18} />
-          Back to Browse
+          <ArrowLeft size={16} />
+          Return to Registry Index
         </button>
 
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <span className={`badge ${item.type === 'lost' ? 'badge-lost' : 'badge-found'}`}>
-            {item.type.toUpperCase()}
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <span className={`mono-token ${item.type === 'lost' ? 'mono-token-amber' : 'mono-token-emerald'}`}>
+            {item.type === 'lost' ? '● ACTIVE INQUIRY' : '◆ IN CUSTODY'}
           </span>
-          <span className={`badge ${item.status === 'resolved' ? 'badge-match' : item.status === 'lost' ? 'badge-lost' : 'badge-found'}`}>
-            {item.status === 'resolved' ? 'RESOLVED' : item.status.toUpperCase()}
+          <span className="mono-token mono-token-subtle">
+            REF #LL-{item.id.slice(0, 8).toUpperCase()}
           </span>
         </div>
       </div>
 
-      <div className="card" style={{ overflow: 'hidden' }}>
-        {/* Item Image Gallery / Header */}
-        <div style={{ height: '320px', backgroundColor: '#F1F3F9', position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{
+        backgroundColor: '#FFFFFF',
+        borderRadius: 'var(--radius)',
+        border: '1px solid var(--border)',
+        boxShadow: 'var(--shadow-sm)',
+        overflow: 'hidden'
+      }}>
+        {/* Archival Dossier Top Bar */}
+        <div className="item-details-sub-header" style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: '12px 24px',
+          borderBottom: '1px solid var(--border)',
+          backgroundColor: 'var(--bg-canvas)',
+          fontSize: '0.75rem',
+          fontFamily: 'var(--font-mono)',
+          color: 'var(--text-muted)'
+        }}>
+          <div>CAMPUS LOST & FOUND REGISTRY // DOCKET ARCHIVE</div>
+          <div style={{ display: 'flex', gap: '14px', alignItems: 'center' }}>
+            <span>FILED: {new Date(item.createdAt).toLocaleDateString()}</span>
+            <span>VERIFIED SESSION</span>
+          </div>
+        </div>
+
+        {/* Category Artwork or Real Image Hero Section */}
+        <div 
+          className="item-details-hero"
+          style={{ 
+            height: '360px', 
+            backgroundColor: catArt.bg, 
+            position: 'relative', 
+            overflow: 'hidden', 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center', 
+            borderBottom: '1px solid var(--border)'
+          }}
+        >
           {item.imageUrl && !imageError ? (
             <img 
               src={item.imageUrl} 
               alt={item.title} 
-              onError={() => setImageError(true)}
+              onError={() => {
+                if (item.imageUrl) setFailedImageUrl(item.imageUrl);
+              }}
               style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
             />
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', color: '#A0AEC0' }}>
-              <ImageIcon size={64} strokeWidth={1.5} />
-              <span style={{ fontSize: '0.95rem', fontWeight: 500 }}>No Photo Provided</span>
+            <div 
+              style={{ 
+                display: 'flex', 
+                flexDirection: 'column', 
+                alignItems: 'center', 
+                justifyContent: 'center', 
+                gap: '12px', 
+                textAlign: 'center', 
+                padding: '24px' 
+              }}
+            >
+              <span style={{ fontSize: '5rem', filter: 'drop-shadow(0 8px 16px rgba(0,0,0,0.06))' }}>
+                {catArt.emoji}
+              </span>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                <span className="mono-token mono-token-subtle" style={{ letterSpacing: '0.08em' }}>
+                  {catArt.label} // SPECIMEN ARCHIVE
+                </span>
+                <span style={{ fontSize: '0.8rem', color: '#78716C', fontWeight: 500 }}>
+                  {item.imageUrl && imageError ? 'Image preview unavailable • Category illustration' : 'No photo uploaded • Category illustration'}
+                </span>
+              </div>
             </div>
           )}
 
+          {/* Archival Rubber Stamp when Resolved */}
           {item.status === 'resolved' && (
-            <div style={{ position: 'absolute', top: '16px', left: '16px', backgroundColor: 'rgba(56, 161, 105, 0.95)', color: 'white', padding: '6px 14px', borderRadius: '999px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', fontWeight: 600, backdropFilter: 'blur(4px)' }}>
-              <CheckCircle2 size={16} />
-              Recovered & Resolved
+            <div 
+              className="archival-stamp"
+              style={{
+                position: 'absolute',
+                top: '50%',
+                left: '50%',
+                transform: 'translate(-50%, -50%) rotate(-10deg)',
+                zIndex: 10,
+                fontSize: '1.25rem',
+                padding: '10px 24px',
+                borderWidth: '3px',
+                backgroundColor: 'rgba(248, 248, 246, 0.92)',
+                boxShadow: '0 4px 16px rgba(180, 83, 9, 0.2)'
+              }}
+            >
+              REUNITED • ARCHIVED
             </div>
           )}
+
+          {/* Floating Badges Overlay */}
+          <div style={{ position: 'absolute', top: '16px', left: '16px', right: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', zIndex: 2 }}>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+              <span 
+                className={`mono-token ${
+                  item.status === 'lost' ? 'mono-token-amber' : item.status === 'found' ? 'mono-token-emerald' : 'mono-token-subtle'
+                }`}
+                style={{ 
+                  backgroundColor: '#FFFFFF',
+                  boxShadow: 'var(--shadow-sm)'
+                }}
+              >
+                {item.status === 'lost' ? '● SEARCH ACTIVE' : item.status === 'found' ? '◆ IN CUSTODY' : '✔ ARCHIVED'}
+              </span>
+
+              {item.hasPrivateVerification && item.status === 'found' && (
+                <span
+                  className="mono-token"
+                  style={{
+                    backgroundColor: '#1E293B',
+                    color: '#FFFFFF',
+                    border: '1px solid #334155',
+                    boxShadow: 'var(--shadow-sm)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '5px'
+                  }}
+                >
+                  <Lock size={11} /> VERIFICATION LOCK
+                </span>
+              )}
+
+              {item.urgency === 'high' && item.status !== 'resolved' && (
+                <span
+                  className="mono-token mono-token-amber"
+                  style={{
+                    backgroundColor: '#FEF3C7',
+                    boxShadow: 'var(--shadow-sm)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                >
+                  <AlertTriangle size={11} /> PRIORITY INCIDENT
+                </span>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Content Body */}
-        <div style={{ padding: '32px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--primary)', fontSize: '0.8rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>
-            <Tag size={14} />
-            <span>{item.category}</span>
+        <div className="item-details-body" style={{ padding: '36px' }}>
+          {/* Category & Timestamp meta */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '14px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-muted)', fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: 'var(--font-mono)' }}>
+              <Tag size={13} />
+              <span>TAXONOMY: {item.category}</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-muted)', fontSize: '0.8rem', fontFamily: 'var(--font-mono)' }}>
+              <Clock size={13} />
+              <span>LOGGED {formattedCreatedAt}</span>
+            </div>
           </div>
 
-          <h1 style={{ fontSize: '1.75rem', marginBottom: '16px', color: 'var(--text-main)', lineHeight: 1.3 }}>
+          <h1 className="item-details-title" style={{ 
+            fontFamily: 'var(--font-serif)', 
+            fontSize: '2.4rem', 
+            marginBottom: '24px', 
+            color: 'var(--text-main)', 
+            lineHeight: 1.2, 
+            fontWeight: 600,
+            letterSpacing: '-0.02em'
+          }}>
             {item.title}
           </h1>
 
-          {/* Quick Details Grid */}
+          {/* Archival Ledger Grid */}
           <div 
+            className="item-details-meta-grid"
             style={{ 
               display: 'grid', 
-              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
-              gap: '16px', 
-              padding: '16px', 
-              backgroundColor: '#FAFBFC', 
-              borderRadius: 'var(--radius-sm)', 
+              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', 
+              backgroundColor: 'var(--bg-canvas)',
+              borderRadius: '8px', 
               border: '1px solid var(--border)',
-              marginBottom: '28px' 
+              marginBottom: '32px',
+              overflow: 'hidden'
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
-              <div style={{ width: '36px', height: '36px', borderRadius: '8px', backgroundColor: 'var(--primary-light)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <MapPin size={18} />
+            <div style={{ padding: '16px 20px', borderRight: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }}>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: 'var(--font-mono)', marginBottom: '4px' }}>
+                LOCATION / SECTOR
               </div>
-              <div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Location</div>
-                <div style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-main)' }}>{item.location}</div>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
-              <div style={{ width: '36px', height: '36px', borderRadius: '8px', backgroundColor: 'var(--primary-light)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <Calendar size={18} />
-              </div>
-              <div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
-                  Date {item.type === 'lost' ? 'Lost' : 'Found'}
-                </div>
-                <div style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-main)' }}>
-                  {formattedDate} {item.time ? `• ${item.time}` : ''}
-                </div>
+              <div style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                {item.campusZone ? `${item.campusZone} • ${item.location}` : item.location}
               </div>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
-              <div style={{ width: '36px', height: '36px', borderRadius: '8px', backgroundColor: 'var(--primary-light)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <Clock size={18} />
+            <div style={{ padding: '16px 20px', borderRight: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }}>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: 'var(--font-mono)', marginBottom: '4px' }}>
+                DATE {item.type === 'lost' ? 'LOST' : 'FOUND'}
               </div>
-              <div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Reported At</div>
-                <div style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-main)' }}>{formattedCreatedAt}</div>
+              <div style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                {formattedDate} {item.time ? `• ${item.time}` : ''}
               </div>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
-              <div style={{ width: '36px', height: '36px', borderRadius: '8px', backgroundColor: 'var(--primary-light)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <UserIcon size={18} />
+            <div style={{ padding: '16px 20px', borderRight: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }}>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: 'var(--font-mono)', marginBottom: '4px' }}>
+                TAXONOMY
               </div>
-              <div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Reporter</div>
-                <div style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-main)' }}>
-                  {isOwner ? `${user.name} (You)` : 'Campus Student'}
-                </div>
+              <div style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                {catArt.emoji} {item.category}
+              </div>
+            </div>
+
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)' }}>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: 'var(--font-mono)', marginBottom: '4px' }}>
+                REGISTERED REPORTER
+              </div>
+              <div style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                {isOwner ? `${user.name} (You)` : (item.reporterName || 'Registered Student')}
               </div>
             </div>
           </div>
 
+          {/* Ownership Lock Callout */}
+          {item.hasPrivateVerification && item.status === 'found' && (
+            <div 
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '14px',
+                padding: '18px 20px',
+                backgroundColor: 'var(--bg-canvas)',
+                border: '1px solid var(--border)',
+                borderRadius: '8px',
+                marginBottom: '28px'
+              }}
+            >
+              <div style={{
+                width: '32px',
+                height: '32px',
+                borderRadius: '6px',
+                backgroundColor: 'var(--text-main)',
+                color: '#FFFFFF',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0
+              }}>
+                <Lock size={15} />
+              </div>
+              <div>
+                <div style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '2px', fontFamily: 'var(--font-mono)' }}>
+                  OWNERSHIP VERIFICATION RECORDED
+                </div>
+                <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+                  The finder has recorded private distinguishing characteristics (such as serial numbers, lock screens, or stickers). You will be asked to verify these during handover.
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Description */}
           <div style={{ marginBottom: '32px' }}>
-            <h3 style={{ fontSize: '1.1rem', marginBottom: '12px', color: 'var(--text-main)' }}>Description</h3>
-            <p style={{ fontSize: '1rem', color: 'var(--text-main)', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
+            <h3 style={{ fontSize: '0.82rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: 'var(--font-mono)', marginBottom: '10px', color: 'var(--text-muted)' }}>
+              DETAILED STATEMENT // DESCRIPTION
+            </h3>
+            <p style={{ fontSize: '1rem', color: 'var(--text-main)', lineHeight: 1.75, whiteSpace: 'pre-wrap', margin: 0 }}>
               {item.description}
             </p>
           </div>
 
+          {/* Gratitude Note Callout */}
+          {item.gratitudeNote && (
+            <div 
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '14px',
+                padding: '18px 20px',
+                backgroundColor: '#FEF3C7',
+                border: '1px solid #FDE68A',
+                borderRadius: '8px',
+                marginBottom: '28px'
+              }}
+            >
+              <div style={{
+                width: '32px',
+                height: '32px',
+                borderRadius: '6px',
+                backgroundColor: 'rgba(217, 119, 6, 0.2)',
+                color: '#B45309',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0
+              }}>
+                <Coffee size={16} />
+              </div>
+              <div>
+                <div style={{ fontSize: '0.76rem', fontWeight: 700, color: '#92400E', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '4px', fontFamily: 'var(--font-mono)' }}>
+                  GRATITUDE NOTE FROM REPORTER
+                </div>
+                <p style={{ fontSize: '0.92rem', color: '#78350F', lineHeight: 1.55, margin: 0 }}>
+                  "{item.gratitudeNote}"
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Reporter Information Card (rendered ONLY when real reporter metadata exists) */}
+          {item.reporterName && !isOwner && (
+            <div 
+              style={{
+                padding: '16px 20px',
+                backgroundColor: 'rgba(255, 255, 255, 0.65)',
+                backdropFilter: 'var(--blur-subtle)',
+                WebkitBackdropFilter: 'var(--blur-subtle)',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--radius-sm)',
+                boxShadow: 'var(--glass-specular-soft)',
+                marginBottom: '28px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '12px'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div 
+                  style={{
+                    width: '40px',
+                    height: '40px',
+                    borderRadius: '50%',
+                    background: 'linear-gradient(135deg, var(--primary) 0%, #3B82F6 100%)',
+                    color: 'white',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '0.95rem',
+                    fontWeight: 700,
+                    flexShrink: 0,
+                    boxShadow: '0 2px 6px rgba(24, 90, 219, 0.2)'
+                  }}
+                >
+                  {item.reporterName.charAt(0).toUpperCase()}
+                </div>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ fontSize: '0.94rem', fontWeight: 650, color: 'var(--text-main)' }}>
+                      {item.reporterName}
+                    </span>
+                    {item.reporterVerified && (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', fontSize: '0.74rem', color: 'var(--success)', fontWeight: 600 }}>
+                        <ShieldCheck size={14} /> Verified Student
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                    {item.reporterRole || 'Campus Community Reporter'}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Action Error */}
           {actionError && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 16px', backgroundColor: 'var(--danger-light)', color: 'var(--danger)', borderRadius: 'var(--radius-sm)', fontSize: '0.9rem', fontWeight: 500, marginBottom: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 16px', backgroundColor: 'var(--danger-light)', color: 'var(--danger)', borderRadius: 'var(--radius-sm)', fontSize: '0.9rem', fontWeight: 500, marginBottom: '20px' }}>
               <AlertCircle size={18} />
-              {actionError}
+              <span>{actionError}</span>
               <button 
                 onClick={() => setActionError(null)} 
                 style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}
@@ -259,7 +523,7 @@ export const ItemDetails: React.FC = () => {
           )}
 
           {/* Action Row */}
-          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center', paddingTop: '20px', borderTop: '1px solid var(--border)' }}>
+          <div className="item-details-actions" style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center', paddingTop: '20px', borderTop: '1px solid var(--border)' }}>
             <button 
               className="btn btn-secondary" 
               onClick={() => navigate('/browse')}

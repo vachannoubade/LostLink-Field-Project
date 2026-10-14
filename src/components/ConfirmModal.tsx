@@ -69,6 +69,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
     <AnimatePresence>
       {isOpen && (
         <div
+          className="confirm-modal-overlay"
           style={{
             position: 'fixed',
             top: 0,
@@ -111,6 +112,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 12 }}
             transition={{ type: 'spring', damping: 25, stiffness: 350 }}
+            className="confirm-modal-card"
             style={{
               position: 'relative',
               width: '100%',
@@ -168,7 +170,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
             </p>
 
             {/* Action Buttons */}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+            <div className="confirm-modal-actions" style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
               <button
                 type="button"
                 onClick={onClose}

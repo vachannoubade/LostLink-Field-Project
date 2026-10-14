@@ -335,7 +335,7 @@ export const Auth: React.FC<{ defaultMode?: 'login' | 'signup' }> = ({ defaultMo
       <motion.div 
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
-        className="card" 
+        className="card auth-card" 
         style={{ padding: '32px' }}
       >
         {/* Tab Switcher (Visible on Sign In / Create Account) */}

@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import type { Report, Match, User, Notification } from '../types';
 import { initialReports, demoUser, initialNotifications } from './seedData';
-import { calculateMatchScore } from '../utils/matching';
+import { generateMatches } from '../utils/matching';
 import { useAuth } from './AuthContext';
 import { supabase } from '../lib/supabase';
 import {
@@ -247,7 +247,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return rowToReport(row, signedUrl);
       }));
 
-      // 2. Fetch matches (RLS enforces user sees only matches involving their reports)
+      // 2. Fetch matches (if present in database, otherwise populated by client correlation engine)
       if (auth.isAuthenticated) {
         const { data: matchesData, error: matchesError } = await supabase
           .from('matches')
@@ -255,8 +255,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           .order('created_at', { ascending: false });
 
         if (matchesError) {
-          console.error('Failed to fetch matches:', matchesError);
-        } else if (matchesData) {
+          console.warn('Notice: Server matches query returned:', matchesError.message);
+        } else if (matchesData && matchesData.length > 0) {
           setMatches(matchesData.map(rowToMatch));
         }
 
@@ -319,67 +319,77 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [isDemo]);
 
   // -----------------------------------------------------------------------
-  // Demo-only: Recalculate matches whenever reports change
+  // Recalculate matches whenever reports change (Demo & Authenticated)
   // -----------------------------------------------------------------------
   useEffect(() => {
-    if (!isDemo) return;
-    if (reports.length === 0) return;
-    
-    const lostReports = reports.filter(r => r.type === 'lost' && r.status === 'lost');
-    const foundReports = reports.filter(r => r.type === 'found' && r.status === 'found');
-    
-    const newMatches: Match[] = [];
-    const currentMatches = matchesRef.current;
-    
-    lostReports.forEach(lost => {
-      foundReports.forEach(found => {
-        const alreadyMatched = currentMatches.some(m => 
-          (m.lostReportId === lost.id && m.foundReportId === found.id) ||
-          (m.lostReportId === found.id && m.foundReportId === lost.id)
-        ) || newMatches.some(m => 
-          (m.lostReportId === lost.id && m.foundReportId === found.id) ||
-          (m.lostReportId === found.id && m.foundReportId === lost.id)
-        );
+    if (reports.length === 0) {
+      setMatches([]);
+      return;
+    }
 
-        if (alreadyMatched) return;
-        
-        const score = calculateMatchScore(lost, found);
-        if (score.score > 40) {
-          const newMatch: Match = {
-            id: `m_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-            lostReportId: lost.id,
-            foundReportId: found.id,
-            score,
-            status: 'pending',
-            createdAt: new Date().toISOString()
-          };
-          newMatches.push(newMatch);
+    const storageKey = isDemo ? 'lostlink_matches' : `lostlink_match_decisions_${user.id || 'auth'}`;
+    const savedDecisions: Record<string, 'pending' | 'verified' | 'rejected'> = {};
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((m: Match) => {
+            if (m?.id && m?.status) {
+              savedDecisions[m.id] = m.status;
+            }
+          });
         }
-      });
+      }
+    } catch {}
+
+    const generated = generateMatches(reports);
+
+    // Preserve any existing user decisions from memory or storage
+    const currentMemoryMatches = matchesRef.current;
+    const finalMatches: Match[] = generated.map(gm => {
+      const existingInMem = currentMemoryMatches.find(m => m.id === gm.id);
+      if (existingInMem && existingInMem.status !== 'pending') {
+        return { ...gm, status: existingInMem.status };
+      }
+      if (savedDecisions[gm.id] && savedDecisions[gm.id] !== 'pending') {
+        return { ...gm, status: savedDecisions[gm.id] };
+      }
+      return gm;
     });
 
-    if (newMatches.length > 0) {
-      setMatches(prev => [...prev, ...newMatches]);
-      
-      const newNotifications: Notification[] = newMatches
-        .filter(m => {
-          const lost = reports.find(r => r.id === m.lostReportId);
-          const found = reports.find(r => r.id === m.foundReportId);
-          return lost?.userId === user.id || found?.userId === user.id;
-        })
-        .map(m => ({
-          id: `n_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-          userId: user.id,
-          title: 'New Potential Match!',
-          message: `We found a potential match for your reported item with a ${m.score.score}% confidence score.`,
-          read: false,
-          createdAt: new Date().toISOString(),
-          link: `/ai-matches`
-        }));
-        
-      if (newNotifications.length > 0) {
-        setNotifications(prev => [...newNotifications, ...prev]);
-      }
+    // Sort: user's own reports first, then highest score
+    finalMatches.sort((a, b) => {
+      const aUser = Boolean(user.id && reports.some(r => (r.id === a.lostReportId || r.id === a.foundReportId) && r.userId === user.id));
+      const bUser = Boolean(user.id && reports.some(r => (r.id === b.lostReportId || r.id === b.foundReportId) && r.userId === user.id));
+      if (aUser && !bUser) return -1;
+      if (!aUser && bUser) return 1;
+      return b.score.score - a.score.score;
+    });
+
+    setMatches(finalMatches);
+
+    // Generate in-app notifications for newly discovered matches involving the active user
+    const newMatchesForUser = finalMatches.filter(m => {
+      const isNew = !currentMemoryMatches.some(prev => prev.id === m.id);
+      if (!isNew) return false;
+      const lost = reports.find(r => r.id === m.lostReportId);
+      const found = reports.find(r => r.id === m.foundReportId);
+      return (lost?.userId === user.id || found?.userId === user.id);
+    });
+
+    if (newMatchesForUser.length > 0) {
+      const newNotifs: Notification[] = newMatchesForUser.map(m => ({
+        id: `n_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        userId: user.id,
+        title: 'Potential Match Discovered',
+        message: `A potential match was cross-referenced for your reported item (${m.score.score}% correlation).`,
+        read: false,
+        createdAt: new Date().toISOString(),
+        link: '/ai-matches'
+      }));
+
+      setNotifications(prev => [...newNotifs, ...prev]);
     }
   }, [reports, user.id, isDemo]);
 
@@ -614,26 +624,27 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setReports(prev => prev.map(r => r.id === id ? { ...r, status } : r));
   };
 
-  const verifyMatch = useCallback(async (matchId: string) => {
-    setMatches(prev => prev.map(m => m.id === matchId ? { ...m, status: 'verified' } : m));
-    const match = matches.find(m => m.id === matchId);
-    if (match) {
-      if (isDemo) {
-        updateReportStatus(match.lostReportId, 'resolved');
-        updateReportStatus(match.foundReportId, 'resolved');
-      } else {
-        const activeUserId = auth.session?.user?.id || auth.user?.id;
-        const myReport = reports.find(r => (r.id === match.lostReportId || r.id === match.foundReportId) && r.userId === activeUserId);
-        if (myReport) {
-          await resolveReport(myReport.id);
-        }
-      }
-    }
-  }, [isDemo, matches, reports, auth.session, auth.user, resolveReport]);
+  const verifyMatch = useCallback((matchId: string) => {
+    setMatches(prev => {
+      const updated = prev.map(m => m.id === matchId ? { ...m, status: 'verified' as const } : m);
+      try {
+        const storageKey = isDemo ? 'lostlink_matches' : `lostlink_match_decisions_${user.id || 'auth'}`;
+        localStorage.setItem(storageKey, JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  }, [isDemo, user.id]);
 
   const rejectMatch = useCallback((matchId: string) => {
-    setMatches(prev => prev.map(m => m.id === matchId ? { ...m, status: 'rejected' } : m));
-  }, []);
+    setMatches(prev => {
+      const updated = prev.map(m => m.id === matchId ? { ...m, status: 'rejected' as const } : m);
+      try {
+        const storageKey = isDemo ? 'lostlink_matches' : `lostlink_match_decisions_${user.id || 'auth'}`;
+        localStorage.setItem(storageKey, JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  }, [isDemo, user.id]);
 
   const markNotificationRead = useCallback((id: string) => {
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
