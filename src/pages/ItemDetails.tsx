@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useData } from '../store/DataContext';
 import { 
@@ -8,6 +8,8 @@ import {
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { ConfirmModal } from '../components/ConfirmModal';
+import { OwnershipVerifyModal } from '../components/OwnershipVerifyModal';
+import { getOwnerVerification, type OwnerVerificationDetails } from '../lib/verification';
 import { getCategoryIllustration } from '../utils/categoryArt';
 
 export const ItemDetails: React.FC = () => {
@@ -21,8 +23,29 @@ export const ItemDetails: React.FC = () => {
     type: 'delete' | 'resolve';
   } | null>(null);
 
+  // Private Ownership Verification State
+  const [showVerifyModal, setShowVerifyModal] = useState(false);
+  const [ownerVerification, setOwnerVerification] = useState<OwnerVerificationDetails | null>(null);
+  const [loadingOwnerVerification, setLoadingOwnerVerification] = useState(false);
+
   const item = reports.find(r => r.id === id);
+  const isOwner = Boolean(item && item.userId === user.id);
   const imageError = Boolean(item?.imageUrl && failedImageUrl === item.imageUrl);
+
+  // Fetch private verification details securely if viewing own report
+  useEffect(() => {
+    let isMounted = true;
+    if (isOwner && item?.id) {
+      getOwnerVerification(item.id).then(details => {
+        if (!isMounted) return;
+        setOwnerVerification(details);
+        setLoadingOwnerVerification(false);
+      });
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, [isOwner, item?.id]);
 
   if (loading) {
     return (
@@ -66,7 +89,6 @@ export const ItemDetails: React.FC = () => {
     );
   }
 
-  const isOwner = item.userId === user.id;
   const catArt = getCategoryIllustration(item.category);
   const formattedDate = new Date(item.date).toLocaleDateString(undefined, {
     weekday: 'short',
@@ -365,8 +387,124 @@ export const ItemDetails: React.FC = () => {
             </div>
           </div>
 
-          {/* Ownership Lock Callout */}
-          {item.hasPrivateVerification && item.status === 'found' && (
+          {/* Owner-Protected Private Verification Card */}
+          {isOwner && (item.hasPrivateVerification || ownerVerification?.configured) && (
+            <div 
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '12px',
+                padding: '20px 24px',
+                backgroundColor: 'rgba(248, 248, 246, 0.95)',
+                border: '1.5px solid var(--border)',
+                borderRadius: '8px',
+                marginBottom: '28px'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <ShieldCheck size={18} color="var(--primary)" />
+                  <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-main)', fontFamily: 'var(--font-mono)', letterSpacing: '0.04em' }}>
+                    YOUR PRIVATE OWNERSHIP VERIFICATION (CONFIDENTIAL)
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => navigate(`/report/edit/${item.id}`)}
+                  className="btn btn-ghost"
+                  style={{ fontSize: '0.8rem', padding: '4px 10px', height: 'auto', display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--primary)' }}
+                >
+                  <Pencil size={13} /> Update Clue / PIN
+                </button>
+              </div>
+
+              {loadingOwnerVerification ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)', fontSize: '0.85rem', padding: '8px 0' }}>
+                  <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Loading verification details...
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <div>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)', fontWeight: 700, marginBottom: '2px' }}>
+                      CONFIGURED CLUE (VISIBLE ONLY TO YOU)
+                    </div>
+                    <div style={{ fontSize: '0.92rem', color: 'var(--text-main)', backgroundColor: '#FFFFFF', padding: '10px 14px', borderRadius: '6px', border: '1px solid var(--border)', lineHeight: 1.5 }}>
+                      {ownerVerification?.clue || 'No clue configured.'}
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
+                    <div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)', fontWeight: 700, marginBottom: '2px' }}>
+                        SECRET PIN
+                      </div>
+                      <div style={{ fontSize: '0.92rem', fontFamily: 'var(--font-mono)', letterSpacing: '0.2em', color: 'var(--text-main)', backgroundColor: '#FFFFFF', padding: '6px 14px', borderRadius: '6px', border: '1px solid var(--border)', display: 'inline-block' }}>
+                        ••••••
+                      </div>
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '16px' }}>
+                      🔒 Encrypted with salted bcrypt in PostgreSQL. Plaintext PIN is never stored or returned.
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Claimant / Finder Verification Callout */}
+          {!isOwner && item.hasPrivateVerification && item.status !== 'resolved' && (
+            <div 
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '16px',
+                padding: '20px 24px',
+                backgroundColor: 'rgba(24, 90, 219, 0.04)',
+                border: '1.5px solid rgba(24, 90, 219, 0.22)',
+                borderRadius: '8px',
+                marginBottom: '28px'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '14px', maxWidth: '540px' }}>
+                <div style={{
+                  width: '38px',
+                  height: '38px',
+                  borderRadius: '8px',
+                  backgroundColor: 'var(--primary)',
+                  color: '#FFFFFF',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0
+                }}>
+                  <ShieldCheck size={20} />
+                </div>
+                <div>
+                  <div style={{ fontSize: '0.92rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '3px', fontFamily: 'var(--font-mono)' }}>
+                    SECURE OWNERSHIP VERIFICATION ENABLED
+                  </div>
+                  <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                    The registered owner has secured this item with a confidential clue and 6-digit secret PIN. If you found this item or are claiming ownership, submit the verification credentials.
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => setShowVerifyModal(true)}
+                style={{ padding: '9px 18px', fontSize: '0.88rem', display: 'inline-flex', alignItems: 'center', gap: '7px' }}
+              >
+                <ShieldCheck size={16} />
+                Verify Ownership Claim
+              </button>
+            </div>
+          )}
+
+          {/* Found item lock callout for legacy found reports */}
+          {item.hasPrivateVerification && item.status === 'found' && !isOwner && (
             <div 
               style={{
                 display: 'flex',
@@ -397,7 +535,7 @@ export const ItemDetails: React.FC = () => {
                   OWNERSHIP VERIFICATION RECORDED
                 </div>
                 <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.55 }}>
-                  The finder has recorded private distinguishing characteristics (such as serial numbers, lock screens, or stickers). You will be asked to verify these during handover.
+                  The finder has recorded private distinguishing characteristics. You will be asked to verify these during handover.
                 </div>
               </div>
             </div>
@@ -543,6 +681,17 @@ export const ItemDetails: React.FC = () => {
               </button>
             )}
 
+            {!isOwner && item.hasPrivateVerification && item.status !== 'resolved' && (
+              <button 
+                className="btn btn-secondary" 
+                onClick={() => setShowVerifyModal(true)}
+                style={{ flex: '1 1 180px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              >
+                <ShieldCheck size={16} />
+                Verify Ownership
+              </button>
+            )}
+
             {isOwner && (
               <>
                 <button 
@@ -613,6 +762,14 @@ export const ItemDetails: React.FC = () => {
           cancelText="Cancel"
         />
       )}
+
+      {/* Ownership Verification Challenge Modal */}
+      <OwnershipVerifyModal
+        isOpen={showVerifyModal}
+        onClose={() => setShowVerifyModal(false)}
+        reportId={item.id}
+        reportTitle={item.title}
+      />
     </motion.div>
   );
 };

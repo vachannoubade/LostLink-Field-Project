@@ -1,13 +1,14 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { useData } from '../store/DataContext';
 import type { Category } from '../types';
 import { 
   CheckCircle, UploadCloud, ArrowLeft, AlertCircle, Loader2, 
-  Lock, Globe, MapPin, Tag, Calendar, ShieldCheck 
+  Lock, Globe, MapPin, Tag, Calendar, ShieldCheck, Eye, EyeOff 
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { validateImageFile, uploadReportImage, deleteReportImage } from '../lib/storage';
+import { validatePin, validateClue, setReportVerification, getOwnerVerification } from '../lib/verification';
 import { CATEGORY_OPTIONS } from '../utils/categoryArt';
 
 const getDefaultDate = () => new Date().toISOString().split('T')[0];
@@ -94,6 +95,31 @@ export const ReportForm: React.FC = () => {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Private Ownership Verification State
+  const [ownershipClue, setOwnershipClue] = useState('');
+  const [ownershipPin, setOwnershipPin] = useState('');
+  const [showPin, setShowPin] = useState(false);
+  const [clueError, setClueError] = useState<string | null>(null);
+  const [pinError, setPinError] = useState<string | null>(null);
+  const [hasExistingVerification, setHasExistingVerification] = useState(false);
+
+  // Load existing verification clue when editing an owned report
+  useEffect(() => {
+    let isMounted = true;
+    if (isEdit && editId && isLost) {
+      getOwnerVerification(editId).then(res => {
+        if (!isMounted) return;
+        if (res.configured && res.clue) {
+          setOwnershipClue(res.clue);
+          setHasExistingVerification(true);
+        }
+      });
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, [isEdit, editId, isLost]);
+
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -146,6 +172,26 @@ export const ReportForm: React.FC = () => {
     if (isSaving) return;
 
     setSubmitError(null);
+    setClueError(null);
+    setPinError(null);
+
+    // Validate ownership verification fields for lost items
+    if (isLost) {
+      const clueVal = validateClue(ownershipClue);
+      if (!clueVal.valid) {
+        setClueError(clueVal.error || 'Please provide a private ownership clue.');
+        return;
+      }
+
+      if (!isEdit || !hasExistingVerification || ownershipPin.trim() !== '') {
+        const pinVal = validatePin(ownershipPin);
+        if (!pinVal.valid) {
+          setPinError(pinVal.error || 'Please provide a 6-digit numeric PIN.');
+          return;
+        }
+      }
+    }
+
     setIsSaving(true);
     setUploadStatus(null);
 
@@ -182,10 +228,26 @@ export const ReportForm: React.FC = () => {
           date: formData.date,
           imagePath: finalImagePath,
           imageUrl: finalImageUrl,
-          hasPrivateVerification: formData.hasPrivateVerification
+          hasPrivateVerification: isLost ? true : formData.hasPrivateVerification
         });
 
         if (result.success) {
+          if (isLost) {
+            setUploadStatus('Updating private verification details...');
+            const verifResult = await setReportVerification(
+              editId,
+              ownershipClue,
+              ownershipPin.trim() !== '' ? ownershipPin.trim() : undefined
+            );
+
+            if (!verifResult.success) {
+              setSubmitError(verifResult.error || 'Failed to update private verification details.');
+              setIsSaving(false);
+              setUploadStatus(null);
+              return;
+            }
+          }
+
           if (
             existingReport?.imagePath &&
             (newlyUploadedPath ? existingReport.imagePath !== newlyUploadedPath : !formData.imageUrl)
@@ -218,10 +280,26 @@ export const ReportForm: React.FC = () => {
         date: formData.date,
         imagePath: newlyUploadedPath || undefined,
         imageUrl: newlyUploadedPath ? undefined : formData.imageUrl,
-        hasPrivateVerification: formData.hasPrivateVerification
+        hasPrivateVerification: isLost ? true : formData.hasPrivateVerification
       });
 
       if (result.success) {
+        if (isLost && result.id) {
+          setUploadStatus('Securing private verification details...');
+          const verifResult = await setReportVerification(
+            result.id,
+            ownershipClue,
+            ownershipPin.trim()
+          );
+
+          if (!verifResult.success) {
+            setSubmitError(verifResult.error || 'Report created, but failed to secure private verification details.');
+            setIsSaving(false);
+            setUploadStatus(null);
+            return;
+          }
+        }
+
         setSubmitted(true);
         setTimeout(() => {
           navigate('/my-reports');
@@ -499,6 +577,131 @@ export const ReportForm: React.FC = () => {
                 onChange={handleChange}
               />
             </div>
+
+            {/* Private Ownership Verification Section (Lost Items) */}
+            {isLost && (
+              <div 
+                style={{
+                  padding: '24px',
+                  backgroundColor: 'rgba(248, 248, 246, 0.95)',
+                  border: '1.5px solid var(--border)',
+                  borderRadius: 'var(--radius)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '18px',
+                  boxShadow: '0 2px 8px rgba(0, 0, 0, 0.02)'
+                }}
+              >
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                    <ShieldCheck size={20} color="var(--primary)" />
+                    <h3 style={{ fontSize: '1.05rem', fontWeight: 700, margin: 0, color: 'var(--text-main)', letterSpacing: '-0.01em' }}>
+                      Private Ownership Verification
+                    </h3>
+                  </div>
+                  <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: 0, lineHeight: 1.5 }}>
+                    Keep these details private. They will not appear on your public report. You may need them to verify ownership if someone finds your item.
+                  </p>
+                </div>
+
+                {/* Private ownership clue */}
+                <div>
+                  <label className="form-label" htmlFor="ownershipClue" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>Private Ownership Clue *</span>
+                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', fontFamily: 'var(--font-mono)' }}>
+                      CONFIDENTIAL // NOT PUBLIC
+                    </span>
+                  </label>
+                  <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '-4px', marginBottom: '8px', lineHeight: 1.4 }}>
+                    Provide a specific, non-public detail about the item that only a genuine owner would know (e.g. sticker under the case, unique lock screen wallpaper, specific keychain, or scratch pattern).
+                  </p>
+                  <textarea
+                    id="ownershipClue"
+                    name="ownershipClue"
+                    required
+                    rows={3}
+                    className="form-control"
+                    placeholder="e.g. Inside the small front zipper pocket is a blue pen with engraved initials 'A.K.', and the back of the laptop has a faded sticker of a coffee cup..."
+                    value={ownershipClue}
+                    onChange={(e) => {
+                      setOwnershipClue(e.target.value);
+                      if (clueError) setClueError(null);
+                    }}
+                  />
+                  {clueError && (
+                    <div style={{ color: 'var(--danger)', fontSize: '0.82rem', marginTop: '6px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                      <AlertCircle size={14} /> <span>{clueError}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Secret PIN */}
+                <div>
+                  <label className="form-label" htmlFor="ownershipPin" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>Secret PIN {isEdit && hasExistingVerification ? '(Leave blank to retain current PIN)' : '*'}</span>
+                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                      6 NUMERIC DIGITS
+                    </span>
+                  </label>
+                  <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '-4px', marginBottom: '8px', lineHeight: 1.4 }}>
+                    Choose a 6-digit numeric PIN. If someone contacts you regarding this item, they will need to provide this PIN to verify legitimate ownership.
+                  </p>
+                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                    <input
+                      id="ownershipPin"
+                      name="ownershipPin"
+                      type={showPin ? 'text' : 'password'}
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      maxLength={6}
+                      required={!isEdit || !hasExistingVerification}
+                      className="form-control"
+                      placeholder={isEdit && hasExistingVerification ? '•••••• (Current PIN securely saved)' : 'e.g. 582194'}
+                      value={ownershipPin}
+                      onChange={(e) => {
+                        const numericOnly = e.target.value.replace(/\D/g, '').slice(0, 6);
+                        setOwnershipPin(numericOnly);
+                        if (pinError) setPinError(null);
+                      }}
+                      style={{ 
+                        paddingRight: '46px', 
+                        fontFamily: showPin ? 'inherit' : 'var(--font-mono)', 
+                        letterSpacing: showPin ? 'normal' : '0.2em',
+                        fontSize: showPin ? '0.95rem' : '1.1rem'
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPin(!showPin)}
+                      aria-label={showPin ? 'Hide secret PIN' : 'Show secret PIN'}
+                      style={{
+                        position: 'absolute',
+                        right: '12px',
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--text-muted)',
+                        cursor: 'pointer',
+                        padding: '6px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        borderRadius: '4px'
+                      }}
+                    >
+                      {showPin ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
+                  {pinError && (
+                    <div style={{ color: 'var(--danger)', fontSize: '0.82rem', marginTop: '6px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                      <AlertCircle size={14} /> <span>{pinError}</span>
+                    </div>
+                  )}
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '6px' }}>
+                    🔒 Plaintext PIN is never stored. It is salted and hashed using standard bcrypt inside the database.
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Private Verification Option (Found items) */}
             {!isLost && (

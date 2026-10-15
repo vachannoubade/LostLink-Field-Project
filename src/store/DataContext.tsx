@@ -29,6 +29,7 @@ interface SupabaseReportRow {
   status: Report['status'];
   created_at: string;
   updated_at?: string;
+  has_private_verification?: boolean;
 }
 
 interface SupabaseMatchRow {
@@ -76,6 +77,7 @@ const rowToReport = (row: SupabaseReportRow, signedUrl?: string): Report => {
     status: row.status,
     userId: row.user_id,
     createdAt: row.created_at,
+    hasPrivateVerification: Boolean(row.has_private_verification)
   };
 };
 
@@ -126,7 +128,7 @@ const reportToInsertRow = (
     date: report.date,
     time: report.time ?? null,
     image_url: imageUrlToSave,
-    status: report.type === 'lost' ? 'lost' : 'found',
+    status: report.type === 'lost' ? 'lost' : 'found'
   };
 };
 
@@ -141,7 +143,7 @@ export interface DataContextType {
   notifications: Notification[];
   loading: boolean;
   error: string | null;
-  addReport: (report: Omit<Report, 'id' | 'createdAt' | 'status' | 'userId'>) => Promise<{ success: boolean; error?: string }>;
+  addReport: (report: Omit<Report, 'id' | 'createdAt' | 'status' | 'userId'>) => Promise<{ success: boolean; id?: string; error?: string }>;
   updateReport: (id: string, updates: Partial<Omit<Report, 'id' | 'userId' | 'createdAt'>>) => Promise<{ success: boolean; error?: string }>;
   deleteReport: (id: string) => Promise<{ success: boolean; error?: string }>;
   resolveReport: (id: string) => Promise<{ success: boolean; error?: string }>;
@@ -342,7 +344,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const addReport = useCallback(async (
     reportData: Omit<Report, 'id' | 'createdAt' | 'status' | 'userId'>
-  ): Promise<{ success: boolean; error?: string }> => {
+  ): Promise<{ success: boolean; id?: string; error?: string }> => {
     if (!supabase) return { success: false, error: 'Database connection not available' };
     const activeUserId = auth.session?.user?.id || auth.user?.id;
     if (!auth.isAuthenticated || !activeUserId) {
@@ -367,6 +369,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           signedUrl = (await getReportImageSignedUrl(data.image_url, 3600)) || undefined;
         }
         setReports(prev => [rowToReport(data, signedUrl), ...prev]);
+        return { success: true, id: data.id };
       }
 
       return { success: true };

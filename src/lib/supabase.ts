@@ -1,7 +1,13 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 // Read environment variables (supports Vite, Next.js, and standard Supabase Vercel integration naming)
-const metaEnv = import.meta.env as Record<string, string | undefined>;
+const globalObj = typeof globalThis !== 'undefined' ? (globalThis as Record<string, unknown>) : {};
+const nodeProcessEnv = (globalObj.process as { env?: Record<string, string | undefined> } | undefined)?.env;
+const metaEnv = (
+  typeof import.meta !== 'undefined' && import.meta.env
+    ? import.meta.env
+    : (nodeProcessEnv || {})
+) as Record<string, string | undefined>;
 
 const rawUrl = (
   metaEnv.VITE_SUPABASE_URL ||

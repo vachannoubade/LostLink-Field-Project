@@ -25,13 +25,20 @@ const MatchItemCard: React.FC<MatchItemCardProps> = ({ item, title }) => {
       flexDirection: 'column',
       height: '100%'
     }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '6px' }}>
         <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: 'var(--font-mono)' }}>
           {title}
         </span>
-        <span className={`mono-token ${item.type === 'lost' ? 'mono-token-amber' : 'mono-token-emerald'}`}>
-          {item.type === 'lost' ? '● SEARCH ACTIVE' : '◆ IN CUSTODY'}
-        </span>
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+          {item.hasPrivateVerification && (
+            <span className="mono-token" style={{ backgroundColor: '#1E293B', color: '#FFFFFF', fontSize: '0.68rem', padding: '2px 8px' }}>
+              🔒 VERIFIED CLUE
+            </span>
+          )}
+          <span className={`mono-token ${item.type === 'lost' ? 'mono-token-amber' : 'mono-token-emerald'}`}>
+            {item.type === 'lost' ? '● SEARCH ACTIVE' : '◆ IN CUSTODY'}
+          </span>
+        </div>
       </div>
 
       {/* Image or Category Art Thumbnail */}
