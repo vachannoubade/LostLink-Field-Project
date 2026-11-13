@@ -5,14 +5,17 @@
 -- This script must be executed manually by an authorized database administrator
 -- in the Supabase SQL editor or direct psql console after security migrations.
 --
+-- DO NOT EXECUTE ON PRODUCTION WITHOUT EXPLICIT AUTHORIZATION.
+--
 -- Safety Guarantees:
 --   1. Transaction-safe (wrapped in BEGIN / COMMIT).
---   2. Verifies that the targeted auth.users record exists.
+--   2. Verifies that exactly one targeted auth.users record exists.
 --   3. Fails immediately if the account does not exist or target is ambiguous.
---   4. Idempotent: can be executed multiple times safely without duplicate rows.
---   5. Confirms email, sets trusted raw_app_meta_data.role = 'admin', and
---      upserts an ACTIVE administrator campus_memberships record.
---   6. Logs an immutable administrative audit record.
+--   4. Truly idempotent: repeated executions produce no duplicate audit logs or state changes.
+--   5. Preserves existing email confirmation status; does not force-confirm unverified identity.
+--   6. Stores admin_provisioned_at as a genuine ISO-8601 timestamp (via to_jsonb(now())).
+--   7. Atomically sets raw_app_meta_data.role = 'admin' and ACTIVE campus membership.
+--   8. Zero hardcoded passwords, credentials, or public endpoints.
 -- =============================================================================
 
 BEGIN;
@@ -23,8 +26,10 @@ DECLARE
   v_user_count INT;
   v_admin_user_id UUID;
   v_email_confirmed BOOLEAN;
+  v_already_provisioned BOOLEAN := FALSE;
+  v_provision_timestamp TIMESTAMPTZ := now();
 BEGIN
-  -- 1. Check account existence and ambiguity
+  -- 1. Check account existence and ambiguity (must match exactly 1 record)
   SELECT count(*) INTO v_user_count
   FROM auth.users
   WHERE lower(email) = v_admin_email;
@@ -40,22 +45,40 @@ BEGIN
   FROM auth.users
   WHERE lower(email) = v_admin_email;
 
-  -- 3. Confirm email if not already confirmed
-  IF NOT v_email_confirmed THEN
-    UPDATE auth.users
-    SET email_confirmed_at = now(),
-        updated_at = now()
-    WHERE id = v_admin_user_id;
-    RAISE NOTICE 'Administrator email confirmed for % (User ID: %).', v_admin_email, v_admin_user_id;
+  -- 3. Check existing email confirmation status (preserve status without forced verification)
+  IF v_email_confirmed THEN
+    RAISE NOTICE 'Administrator email status: Confirmed.';
+  ELSE
+    RAISE NOTICE 'Administrator email status: Unconfirmed (preserved; credentials will be established via invitation / recovery flow).';
   END IF;
 
-  -- 4. Upgrade raw_app_meta_data with trusted role = 'admin'
+  -- 4. Check if administrator is already fully provisioned (for true idempotency)
+  SELECT (
+    coalesce(u.raw_app_meta_data ->> 'role', '') = 'admin'
+    AND u.raw_app_meta_data ? 'admin_provisioned_at'
+    AND EXISTS (
+      SELECT 1 FROM public.campus_memberships cm
+      WHERE cm.user_id = u.id AND cm.membership_type = 'admin' AND cm.status = 'ACTIVE'
+    )
+  ) INTO v_already_provisioned
+  FROM auth.users u
+  WHERE u.id = v_admin_user_id;
+
+  IF v_already_provisioned THEN
+    RAISE NOTICE 'IDEMPOTENT NO-OP: Administrator % is already fully provisioned with active admin membership. No duplicate audit log created.', v_admin_email;
+    RETURN;
+  END IF;
+
+  -- 5. Upgrade raw_app_meta_data with trusted role = 'admin' and real ISO timestamp
   UPDATE auth.users
-  SET raw_app_meta_data = coalesce(raw_app_meta_data, '{}'::jsonb) || '{"role": "admin", "admin_provisioned_at": "now()"}'::jsonb,
+  SET raw_app_meta_data = coalesce(raw_app_meta_data, '{}'::jsonb) || jsonb_build_object(
+        'role', 'admin',
+        'admin_provisioned_at', to_jsonb(v_provision_timestamp)
+      ),
       updated_at = now()
   WHERE id = v_admin_user_id;
 
-  -- 5. Upsert active campus membership
+  -- 6. Upsert active campus membership atomically
   INSERT INTO public.campus_memberships (
     user_id,
     membership_type,
@@ -70,7 +93,7 @@ BEGIN
     'admin',
     'ACTIVE',
     v_admin_user_id,
-    now(),
+    v_provision_timestamp,
     NULL,
     'Initial authorized administrator explicitly provisioned via secure server script.'
   )
@@ -80,7 +103,7 @@ BEGIN
     expires_at = NULL,
     updated_at = now();
 
-  -- 6. Log audit event
+  -- 7. Log immutable audit event
   INSERT INTO public.audit_logs (actor_id, action, entity_type, entity_id, details)
   VALUES (
     v_admin_user_id,
@@ -90,7 +113,7 @@ BEGIN
     jsonb_build_object(
       'email', v_admin_email,
       'user_id', v_admin_user_id,
-      'provisioned_at', now()
+      'provisioned_at', v_provision_timestamp
     )
   );
 
@@ -98,3 +121,4 @@ BEGIN
 END $$;
 
 COMMIT;
+

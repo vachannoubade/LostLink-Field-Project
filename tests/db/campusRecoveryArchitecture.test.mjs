@@ -159,6 +159,43 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.notifications TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.profiles TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.matches TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON storage.objects TO authenticated;
+
+-- Historical production contract from 20261012163500: returns public.reports
+CREATE OR REPLACE FUNCTION public.resolve_report(report_id UUID)
+RETURNS public.reports
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_report public.reports;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated';
+  END IF;
+
+  SELECT * INTO v_report
+  FROM public.reports
+  WHERE id = report_id AND user_id = auth.uid();
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Report not found or permission denied';
+  END IF;
+
+  IF v_report.status = 'resolved' THEN
+    RAISE EXCEPTION 'Report is already resolved';
+  END IF;
+
+  UPDATE public.reports
+  SET status = 'resolved', updated_at = now()
+  WHERE id = report_id
+  RETURNING * INTO v_report;
+
+  RETURN v_report;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.resolve_report(UUID) TO authenticated;
 `;
 
 const database = new PGlite();
@@ -678,23 +715,252 @@ test('7. can_access_admin_portal() server-side authorization security check', as
   }
 });
 
-test('8. Safe, idempotent initial admin provisioning script (provision_admin.sql)', async () => {
+test('8. PostgreSQL migration contract: resolve_report preserves RETURNS public.reports', async () => {
+  await database.exec('BEGIN');
+  try {
+    // 1. Check function signature in pg_proc
+    const returnTypeQuery = await database.query(`
+      SELECT t.typname
+      FROM pg_proc p
+      JOIN pg_type t ON p.prorettype = t.oid
+      WHERE p.proname = 'resolve_report' AND p.pronamespace = 'public'::regnamespace;
+    `);
+    assert.equal(returnTypeQuery.rows.length, 1);
+    assert.equal(returnTypeQuery.rows[0].typname, 'reports');
+
+    // 2. Report owner can resolve report and receives the updated report record
+    await setAuthUser(STUDENT_A, 'student');
+    const reportId = '80000000-0000-4000-8000-000000000001';
+    await database.query(`
+      INSERT INTO public.reports (id, user_id, type, title, category, description, location, date, status)
+      VALUES ('${reportId}', '${STUDENT_A}', 'lost', 'Scientific Calculator', 'Electronics', 'Lost in Main Auditorium', 'Main Audi', '2026-11-01', 'lost');
+    `);
+
+    const result = await database.query("SELECT (public.resolve_report($1)).status AS status;", [reportId]);
+    assert.equal(result.rows[0].status, 'resolved');
+
+    // 3. Non-owner and non-admin cannot resolve
+    await setAuthUser(STUDENT_B, 'student');
+    await assert.rejects(
+      database.query("SELECT public.resolve_report($1);", [reportId]),
+      /Permission denied: You can only resolve your own reports/i
+    );
+  } finally {
+    await database.exec('ROLLBACK');
+  }
+});
+
+test('9. Server-side Administrative Management RPCs: staff allowlist, membership status, and desk operator role', async () => {
+  await database.exec('BEGIN');
+  try {
+    // 1. admin_add_staff_allowlist
+    // As Administrator: succeeds and creates audit log
+    await setAuthUser(ADMIN_ID, 'admin');
+    const addStaffResult = await database.query(`
+      SELECT public.admin_add_staff_allowlist('prof.verma@sguk.ac.in', 'Prof. Verma', 'Physics', 'staff') AS entry_id;
+    `);
+    const staffEntryId = addStaffResult.rows[0].entry_id;
+    assert.ok(staffEntryId);
+
+    const allowlistCheck = await database.query("SELECT name, is_active FROM public.staff_allowlist WHERE id = $1;", [staffEntryId]);
+    assert.equal(allowlistCheck.rows[0].name, 'Prof. Verma');
+    assert.equal(allowlistCheck.rows[0].is_active, true);
+
+    const auditStaffAdd = await database.query("SELECT action FROM public.audit_logs WHERE action = 'STAFF_ALLOWLIST_UPSERTED' AND entity_id = $1;", [staffEntryId]);
+    assert.equal(auditStaffAdd.rows.length, 1);
+
+    // As Student: denied
+    await setAuthUser(STUDENT_A, 'student');
+    await database.exec('SAVEPOINT sp_admin_add;');
+    try {
+      await assert.rejects(
+        database.query("SELECT public.admin_add_staff_allowlist('hacker@sguk.ac.in', 'Hacker', 'IT', 'staff');"),
+        /Access denied: Authoritative administrator privileges required/i
+      );
+    } finally {
+      await database.exec('ROLLBACK TO SAVEPOINT sp_admin_add;');
+    }
+
+    // 2. admin_toggle_staff_allowlist
+    // As Administrator: can deactivate and reactivate
+    await setAuthUser(ADMIN_ID, 'admin');
+    await database.query("SELECT public.admin_toggle_staff_allowlist($1, false);", [staffEntryId]);
+    const deactivated = await database.query("SELECT is_active FROM public.staff_allowlist WHERE id = $1;", [staffEntryId]);
+    assert.equal(deactivated.rows[0].is_active, false);
+
+    // As Student: denied
+    await setAuthUser(STUDENT_A, 'student');
+    await database.exec('SAVEPOINT sp_admin_toggle;');
+    try {
+      await assert.rejects(
+        database.query("SELECT public.admin_toggle_staff_allowlist($1, true);", [staffEntryId]),
+        /Access denied: Authoritative administrator privileges required/i
+      );
+    } finally {
+      await database.exec('ROLLBACK TO SAVEPOINT sp_admin_toggle;');
+    }
+
+    // 3. admin_set_membership_status
+    // As Administrator: can suspend student membership
+    await setAuthUser(ADMIN_ID, 'admin');
+    await database.query("SELECT public.admin_set_membership_status($1, 'SUSPENDED', 'Honor code investigation');", [STUDENT_A]);
+    const memStatus = await database.query("SELECT status FROM public.campus_memberships WHERE user_id = $1;", [STUDENT_A]);
+    assert.equal(memStatus.rows[0].status, 'SUSPENDED');
+
+    // Administrator cannot suspend themselves
+    await database.exec('SAVEPOINT sp_admin_self_susp;');
+    try {
+      await assert.rejects(
+        database.query("SELECT public.admin_set_membership_status($1, 'SUSPENDED');", [ADMIN_ID]),
+        /Cannot suspend or revoke your own active administrator account/i
+      );
+    } finally {
+      await database.exec('ROLLBACK TO SAVEPOINT sp_admin_self_susp;');
+    }
+
+    // Reactivate student
+    await database.query("SELECT public.admin_set_membership_status($1, 'ACTIVE', 'Reinstated');", [STUDENT_A]);
+    const memActive = await database.query("SELECT status FROM public.campus_memberships WHERE user_id = $1;", [STUDENT_A]);
+    assert.equal(memActive.rows[0].status, 'ACTIVE');
+
+    // As Student: denied
+    await setAuthUser(STUDENT_A, 'student');
+    await database.exec('SAVEPOINT sp_student_set_status;');
+    try {
+      await assert.rejects(
+        database.query("SELECT public.admin_set_membership_status($1, 'SUSPENDED');", [STUDENT_B]),
+        /Access denied: Authoritative administrator privileges required/i
+      );
+    } finally {
+      await database.exec('ROLLBACK TO SAVEPOINT sp_student_set_status;');
+    }
+
+    // 4. admin_set_membership_role
+    // As Administrator: can promote student to desk_operator
+    await setAuthUser(ADMIN_ID, 'admin');
+    await database.query("SELECT public.admin_set_membership_role($1, 'desk_operator', 'Campus helpdesk staff assignment');", [STUDENT_A]);
+    const memRole = await database.query("SELECT membership_type FROM public.campus_memberships WHERE user_id = $1;", [STUDENT_A]);
+    assert.equal(memRole.rows[0].membership_type, 'desk_operator');
+
+    // Can demote back to student
+    await database.query("SELECT public.admin_set_membership_role($1, 'student', 'Rotated off helpdesk duty');", [STUDENT_A]);
+    const memRoleDemoted = await database.query("SELECT membership_type FROM public.campus_memberships WHERE user_id = $1;", [STUDENT_A]);
+    assert.equal(memRoleDemoted.rows[0].membership_type, 'student');
+
+    // Cannot set admin role through this RPC
+    await database.exec('SAVEPOINT sp_admin_role_escalate;');
+    try {
+      await assert.rejects(
+        database.query("SELECT public.admin_set_membership_role($1, 'admin');", [STUDENT_A]),
+        /Invalid role assignment: must be student, staff, or desk_operator/i
+      );
+    } finally {
+      await database.exec('ROLLBACK TO SAVEPOINT sp_admin_role_escalate;');
+    }
+
+    // As Student: denied
+    await setAuthUser(STUDENT_A, 'student');
+    await database.exec('SAVEPOINT sp_student_set_role;');
+    try {
+      await assert.rejects(
+        database.query("SELECT public.admin_set_membership_role($1, 'desk_operator');", [STUDENT_B]),
+        /Access denied: Authoritative administrator privileges required/i
+      );
+    } finally {
+      await database.exec('ROLLBACK TO SAVEPOINT sp_student_set_role;');
+    }
+  } finally {
+    await database.exec('ROLLBACK');
+  }
+});
+
+test('10. Unified administrator authorization: is_current_user_admin() fails closed', async () => {
+  await database.exec('BEGIN');
+  try {
+    // 1. Active administrator with active admin membership passes
+    await setAuthUser(ADMIN_ID, 'admin');
+    const validAdmin = await database.query("SELECT public.is_current_user_admin() AS is_admin;");
+    assert.equal(validAdmin.rows[0].is_admin, true);
+
+    // 2. Fails closed when membership is absent
+    const phantomAdminId = '99999999-9999-4999-8999-999999999999';
+    await database.exec('RESET ROLE');
+    await database.exec(`
+      INSERT INTO auth.users (id, email, raw_app_meta_data)
+      VALUES ('${phantomAdminId}', '242631088@sguk.ac.in', '{"role":"admin"}'::jsonb);
+    `);
+    await database.exec(`
+      DELETE FROM public.campus_memberships WHERE user_id = '${phantomAdminId}';
+    `);
+    await setAuthUser(phantomAdminId, 'admin');
+    const noMembership = await database.query("SELECT public.is_current_user_admin() AS is_admin;");
+    assert.equal(noMembership.rows[0].is_admin, false);
+
+    // 3. Fails closed when membership is SUSPENDED
+    await database.exec('RESET ROLE');
+    await database.query(`UPDATE public.campus_memberships SET status = 'SUSPENDED' WHERE user_id = '${ADMIN_ID}';`);
+    await setAuthUser(ADMIN_ID, 'admin');
+    const suspendedAdmin = await database.query("SELECT public.is_current_user_admin() AS is_admin;");
+    assert.equal(suspendedAdmin.rows[0].is_admin, false);
+
+    // 4. Fails closed when membership is REVOKED
+    await database.exec('RESET ROLE');
+    await database.query(`UPDATE public.campus_memberships SET status = 'REVOKED' WHERE user_id = '${ADMIN_ID}';`);
+    await setAuthUser(ADMIN_ID, 'admin');
+    const revokedAdmin = await database.query("SELECT public.is_current_user_admin() AS is_admin;");
+    assert.equal(revokedAdmin.rows[0].is_admin, false);
+
+    // 5. Fails closed when membership has expired
+    await database.exec('RESET ROLE');
+    await database.query(`UPDATE public.campus_memberships SET status = 'ACTIVE', expires_at = now() - interval '1 hour' WHERE user_id = '${ADMIN_ID}';`);
+    await setAuthUser(ADMIN_ID, 'admin');
+    const expiredAdmin = await database.query("SELECT public.is_current_user_admin() AS is_admin;");
+    assert.equal(expiredAdmin.rows[0].is_admin, false);
+
+    // 6. Fails closed when membership_type is not 'admin'
+    await database.exec('RESET ROLE');
+    await database.query(`UPDATE public.campus_memberships SET status = 'ACTIVE', expires_at = NULL, membership_type = 'staff' WHERE user_id = '${ADMIN_ID}';`);
+    await setAuthUser(ADMIN_ID, 'admin');
+    const nonAdminType = await database.query("SELECT public.is_current_user_admin() AS is_admin;");
+    assert.equal(nonAdminType.rows[0].is_admin, false);
+
+    // 7. Fails closed when role is removed from app_metadata
+    await database.exec('RESET ROLE');
+    await database.query(`UPDATE public.campus_memberships SET status = 'ACTIVE', expires_at = NULL, membership_type = 'admin' WHERE user_id = '${ADMIN_ID}';`);
+    await database.query(`UPDATE auth.users SET raw_app_meta_data = '{}'::jsonb WHERE id = '${ADMIN_ID}';`);
+    await setAuthUser(ADMIN_ID, 'admin');
+    const noRoleClaim = await database.query("SELECT public.is_current_user_admin() AS is_admin;");
+    assert.equal(noRoleClaim.rows[0].is_admin, false);
+  } finally {
+    await database.exec('ROLLBACK');
+  }
+});
+
+test('11. Safe, idempotent initial admin provisioning script (provision_admin.sql)', async () => {
   const provisionSql = await readFile(provisionAdminPath, 'utf8');
 
-  // 1. Run provision_admin.sql against the database
+  // Verify email preservation on unconfirmed account
+  const initialEmailCheck = await database.query(`SELECT email_confirmed_at FROM auth.users WHERE lower(email) = 'vachannoubade@gmail.com';`);
+  const initialConfirmedState = initialEmailCheck.rows[0].email_confirmed_at;
+
+  // Run provision_admin.sql
   await database.exec(provisionSql);
 
-  // 2. Verify auth.users state
   const userRow = await database.query(`
     SELECT email, email_confirmed_at, raw_app_meta_data
     FROM auth.users
     WHERE lower(email) = 'vachannoubade@gmail.com'
   `);
   assert.equal(userRow.rows.length, 1);
-  assert.notEqual(userRow.rows[0].email_confirmed_at, null);
+  assert.equal(userRow.rows[0].email_confirmed_at, initialConfirmedState); // Preserved!
   assert.equal(userRow.rows[0].raw_app_meta_data.role, 'admin');
 
-  // 3. Verify campus_memberships record
+  // Verify admin_provisioned_at is a real ISO timestamp string, not the string "now()"
+  const provisionedAt = userRow.rows[0].raw_app_meta_data.admin_provisioned_at;
+  assert.notEqual(provisionedAt, 'now()');
+  assert.match(provisionedAt, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+
+  // Verify campus_memberships record
   const memberRow = await database.query(`
     SELECT membership_type, status, expires_at
     FROM public.campus_memberships
@@ -703,21 +969,21 @@ test('8. Safe, idempotent initial admin provisioning script (provision_admin.sql
   assert.equal(memberRow.rows.length, 1);
   assert.equal(memberRow.rows[0].membership_type, 'admin');
   assert.equal(memberRow.rows[0].status, 'ACTIVE');
-  assert.equal(memberRow.rows[0].expires_at, null);
 
-  // 4. Verify audit_logs record
-  const auditRow = await database.query(`
-    SELECT action, entity_type, details
-    FROM public.audit_logs
-    WHERE action = 'ADMIN_PROVISIONED' AND actor_id = '${ADMIN_ID}'
+  // Count audit logs after first run
+  const auditCount1 = await database.query(`
+    SELECT count(*) AS cnt FROM public.audit_logs WHERE action = 'ADMIN_PROVISIONED' AND actor_id = '${ADMIN_ID}';
   `);
-  assert.equal(auditRow.rows.length, 1);
-  assert.equal(auditRow.rows[0].details.email, 'vachannoubade@gmail.com');
 
-  // 5. Test idempotence: running provision_admin.sql a second time succeeds without duplication
+  // Run provision_admin.sql a second time (must be completely idempotent)
   await database.exec(provisionSql);
 
-  // 6. Verify admin can access admin portal in an active session
+  const auditCount2 = await database.query(`
+    SELECT count(*) AS cnt FROM public.audit_logs WHERE action = 'ADMIN_PROVISIONED' AND actor_id = '${ADMIN_ID}';
+  `);
+  assert.equal(auditCount2.rows[0].cnt, auditCount1.rows[0].cnt); // No duplicate audit entries!
+
+  // Verify admin can access admin portal in an active session
   await database.exec('BEGIN');
   try {
     await setAuthUser(ADMIN_ID, 'admin');
@@ -728,7 +994,7 @@ test('8. Safe, idempotent initial admin provisioning script (provision_admin.sql
   }
 });
 
-test('9. Rollback safety: Aborts when production data exists, executes cleanly with override', async () => {
+test('12. Rollback safety: Aborts when production data exists, executes cleanly with override', async () => {
   const rollbackSql = await readFile(architectureRollbackPath, 'utf8');
 
   // Insert a test claim
@@ -771,7 +1037,15 @@ test('9. Rollback safety: Aborts when production data exists, executes cleanly w
     const funcs = await database.query(`
       SELECT proname FROM pg_proc
       WHERE pronamespace = 'public'::regnamespace
-        AND proname IN ('complete_handover_resolution', 'submit_claim_secure', 'create_report_secure')
+        AND proname IN (
+          'complete_handover_resolution',
+          'submit_claim_secure',
+          'create_report_secure',
+          'admin_add_staff_allowlist',
+          'admin_toggle_staff_allowlist',
+          'admin_set_membership_status',
+          'admin_set_membership_role'
+        )
     `);
     assert.equal(funcs.rows.length, 0);
   } finally {

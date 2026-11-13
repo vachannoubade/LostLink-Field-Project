@@ -1,8 +1,16 @@
 import React, { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { isTrustedAdminUser, getSafeInternalDestination } from '../lib/admin';
+import { isTrustedAdminUser } from '../lib/admin';
 import { ShieldCheck, Lock, AlertCircle, CheckCircle2, Loader2, ArrowLeft, KeyRound, Eye, EyeOff } from 'lucide-react';
+
+// Strict validation of internal redirect destinations (blocks open redirects)
+const getSafeInternalDestination = (target: string | null): string => {
+  if (target && target.startsWith('/') && !target.startsWith('//') && !target.includes('\\') && !target.includes('://')) {
+    return target;
+  }
+  return '/admin';
+};
 
 export const AdminLogin: React.FC = () => {
   const navigate = useNavigate();

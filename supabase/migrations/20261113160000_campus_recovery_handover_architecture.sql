@@ -272,20 +272,25 @@ $$;
 REVOKE ALL ON FUNCTION public.is_caller_active_member() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.is_caller_active_member() TO authenticated;
 
--- Helper: Check if caller is administrator (must have app_metadata role=admin AND NOT be suspended/revoked)
+-- Helper: Check if caller is administrator (must have app_metadata role=admin AND active unexpired admin membership)
 CREATE OR REPLACE FUNCTION public.is_current_user_admin()
 RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, auth
 AS $$
-  SELECT (coalesce(auth.jwt() -> 'app_metadata' ->> 'role', '') = 'admin')
-     AND NOT EXISTS (
-       SELECT 1 FROM public.campus_memberships cm
-       WHERE cm.user_id = auth.uid()
-         AND cm.status IN ('SUSPENDED', 'REVOKED')
-     );
+  SELECT EXISTS (
+    SELECT 1
+    FROM auth.users u
+    JOIN public.campus_memberships cm ON cm.user_id = u.id
+    WHERE u.id = auth.uid()
+      AND coalesce(u.raw_app_meta_data ->> 'role', '') = 'admin'
+      AND coalesce(auth.jwt() -> 'app_metadata' ->> 'role', '') = 'admin'
+      AND cm.membership_type = 'admin'
+      AND cm.status = 'ACTIVE'
+      AND (cm.expires_at IS NULL OR cm.expires_at > now())
+  );
 $$;
 
 REVOKE ALL ON FUNCTION public.is_current_user_admin() FROM PUBLIC;
@@ -313,7 +318,7 @@ $$;
 REVOKE ALL ON FUNCTION public.is_current_user_desk_operator() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.is_current_user_desk_operator() TO authenticated;
 
--- Helper: Dedicated Server-Side Admin Authorization Function
+-- Helper: Dedicated Server-Side Admin Authorization Function (verifies admin status and target identity)
 CREATE OR REPLACE FUNCTION public.can_access_admin_portal()
 RETURNS boolean
 LANGUAGE sql
@@ -321,16 +326,11 @@ STABLE
 SECURITY DEFINER
 SET search_path = public, auth
 AS $$
-  SELECT EXISTS (
+  SELECT public.is_current_user_admin() AND EXISTS (
     SELECT 1
     FROM auth.users u
     JOIN public.campus_memberships cm ON cm.user_id = u.id
     WHERE u.id = auth.uid()
-      AND coalesce(u.raw_app_meta_data ->> 'role', '') = 'admin'
-      AND coalesce(auth.jwt() -> 'app_metadata' ->> 'role', '') = 'admin'
-      AND cm.membership_type = 'admin'
-      AND cm.status = 'ACTIVE'
-      AND (cm.expires_at IS NULL OR cm.expires_at > now())
       AND (
         lower(u.email) = 'vachannoubade@gmail.com'
         OR coalesce(cm.notes, '') LIKE '%explicitly_provisioned%'
@@ -1196,7 +1196,7 @@ GRANT EXECUTE ON FUNCTION public.create_report_secure TO authenticated;
 
 -- Procedure: Authorized Report Self-Resolution (Owner)
 CREATE OR REPLACE FUNCTION public.resolve_report(report_id UUID)
-RETURNS BOOLEAN
+RETURNS public.reports
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
@@ -1224,7 +1224,7 @@ BEGIN
   END IF;
 
   IF v_report.status = 'resolved' THEN
-    RETURN true;
+    RETURN v_report;
   END IF;
 
   -- Set session flag so report mutation trigger allows resolution from this RPC
@@ -1232,12 +1232,13 @@ BEGIN
 
   UPDATE public.reports
   SET status = 'resolved', updated_at = now()
-  WHERE id = report_id;
+  WHERE id = report_id
+  RETURNING * INTO v_report;
 
   INSERT INTO public.audit_logs (actor_id, action, entity_type, entity_id, details)
   VALUES (v_uid, 'REPORT_RESOLVED_BY_OWNER', 'report', report_id, jsonb_build_object('title', v_report.title));
 
-  RETURN true;
+  RETURN v_report;
 END;
 $$;
 
@@ -1662,6 +1663,234 @@ $$;
 
 REVOKE ALL ON FUNCTION public.complete_handover_resolution FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.complete_handover_resolution TO authenticated;
+
+-- =============================================================================
+-- 15. Server-Side Administrative Management RPCs
+-- =============================================================================
+
+-- 1. Pre-approve / add staff to allowlist
+CREATE OR REPLACE FUNCTION public.admin_add_staff_allowlist(
+  p_email TEXT,
+  p_name TEXT,
+  p_department TEXT DEFAULT 'General',
+  p_role TEXT DEFAULT 'staff'
+)
+RETURNS UUID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth
+AS $$
+DECLARE
+  v_caller_id UUID;
+  v_normalized_email TEXT;
+  v_entry_id UUID;
+BEGIN
+  IF NOT public.can_access_admin_portal() THEN
+    RAISE EXCEPTION 'Access denied: Authoritative administrator privileges required.';
+  END IF;
+
+  v_caller_id := auth.uid();
+  v_normalized_email := lower(btrim(coalesce(p_email, '')));
+
+  IF v_normalized_email = '' OR v_normalized_email NOT LIKE '%@%.%' THEN
+    RAISE EXCEPTION 'A valid email address is required.';
+  END IF;
+
+  IF btrim(coalesce(p_name, '')) = '' THEN
+    RAISE EXCEPTION 'Staff name is required.';
+  END IF;
+
+  IF p_role NOT IN ('staff', 'desk_operator') THEN
+    RAISE EXCEPTION 'Invalid staff role: must be staff or desk_operator.';
+  END IF;
+
+  INSERT INTO public.staff_allowlist (email, name, department, role, is_active, created_by)
+  VALUES (v_normalized_email, btrim(p_name), btrim(coalesce(p_department, 'General')), p_role, true, v_caller_id)
+  ON CONFLICT (email) DO UPDATE SET
+    name = EXCLUDED.name,
+    department = EXCLUDED.department,
+    role = EXCLUDED.role,
+    is_active = true,
+    updated_at = now()
+  RETURNING id INTO v_entry_id;
+
+  INSERT INTO public.audit_logs (actor_id, action, entity_type, entity_id, details)
+  VALUES (
+    v_caller_id,
+    'STAFF_ALLOWLIST_UPSERTED',
+    'staff_allowlist',
+    v_entry_id,
+    jsonb_build_object('email', v_normalized_email, 'name', p_name, 'role', p_role)
+  );
+
+  RETURN v_entry_id;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.admin_add_staff_allowlist(TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.admin_add_staff_allowlist(TEXT, TEXT, TEXT, TEXT) TO authenticated;
+
+-- 2. Toggle active state of staff allowlist entry
+CREATE OR REPLACE FUNCTION public.admin_toggle_staff_allowlist(
+  p_id UUID,
+  p_is_active BOOLEAN
+)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth
+AS $$
+DECLARE
+  v_caller_id UUID;
+  v_entry public.staff_allowlist%ROWTYPE;
+BEGIN
+  IF NOT public.can_access_admin_portal() THEN
+    RAISE EXCEPTION 'Access denied: Authoritative administrator privileges required.';
+  END IF;
+
+  v_caller_id := auth.uid();
+
+  SELECT * INTO v_entry FROM public.staff_allowlist WHERE id = p_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Staff allowlist entry not found.';
+  END IF;
+
+  UPDATE public.staff_allowlist
+  SET is_active = p_is_active, updated_at = now()
+  WHERE id = p_id;
+
+  INSERT INTO public.audit_logs (actor_id, action, entity_type, entity_id, details)
+  VALUES (
+    v_caller_id,
+    'STAFF_ALLOWLIST_STATUS_CHANGED',
+    'staff_allowlist',
+    p_id,
+    jsonb_build_object('email', v_entry.email, 'is_active', p_is_active)
+  );
+
+  RETURN true;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.admin_toggle_staff_allowlist(UUID, BOOLEAN) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.admin_toggle_staff_allowlist(UUID, BOOLEAN) TO authenticated;
+
+-- 3. Suspend or reactivate campus membership
+CREATE OR REPLACE FUNCTION public.admin_set_membership_status(
+  p_user_id UUID,
+  p_status TEXT,
+  p_notes TEXT DEFAULT NULL
+)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth
+AS $$
+DECLARE
+  v_caller_id UUID;
+  v_mem public.campus_memberships%ROWTYPE;
+BEGIN
+  IF NOT public.can_access_admin_portal() THEN
+    RAISE EXCEPTION 'Access denied: Authoritative administrator privileges required.';
+  END IF;
+
+  v_caller_id := auth.uid();
+
+  IF p_status NOT IN ('ACTIVE', 'SUSPENDED', 'REVOKED', 'PENDING') THEN
+    RAISE EXCEPTION 'Invalid membership status: must be ACTIVE, SUSPENDED, REVOKED, or PENDING.';
+  END IF;
+
+  IF p_user_id = v_caller_id AND p_status IN ('SUSPENDED', 'REVOKED') THEN
+    RAISE EXCEPTION 'Cannot suspend or revoke your own active administrator account.';
+  END IF;
+
+  SELECT * INTO v_mem FROM public.campus_memberships WHERE user_id = p_user_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Campus membership not found for user.';
+  END IF;
+
+  UPDATE public.campus_memberships
+  SET status = p_status,
+      notes = coalesce(p_notes, notes),
+      updated_at = now()
+  WHERE user_id = p_user_id;
+
+  INSERT INTO public.audit_logs (actor_id, action, entity_type, entity_id, details)
+  VALUES (
+    v_caller_id,
+    'MEMBERSHIP_STATUS_UPDATED',
+    'campus_membership',
+    p_user_id,
+    jsonb_build_object('previous_status', v_mem.status, 'new_status', p_status, 'notes', p_notes)
+  );
+
+  RETURN true;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.admin_set_membership_status(UUID, TEXT, TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.admin_set_membership_status(UUID, TEXT, TEXT) TO authenticated;
+
+-- 4. Grant or revoke desk-operator role on campus membership
+CREATE OR REPLACE FUNCTION public.admin_set_membership_role(
+  p_user_id UUID,
+  p_role TEXT,
+  p_notes TEXT DEFAULT NULL
+)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth
+AS $$
+DECLARE
+  v_caller_id UUID;
+  v_mem public.campus_memberships%ROWTYPE;
+BEGIN
+  IF NOT public.can_access_admin_portal() THEN
+    RAISE EXCEPTION 'Access denied: Authoritative administrator privileges required.';
+  END IF;
+
+  v_caller_id := auth.uid();
+
+  IF p_role NOT IN ('student', 'staff', 'desk_operator') THEN
+    RAISE EXCEPTION 'Invalid role assignment: must be student, staff, or desk_operator.';
+  END IF;
+
+  IF p_user_id = v_caller_id THEN
+    RAISE EXCEPTION 'Cannot alter primary administrator role assignment.';
+  END IF;
+
+  SELECT * INTO v_mem FROM public.campus_memberships WHERE user_id = p_user_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Campus membership not found for user.';
+  END IF;
+
+  -- Admin role cannot be modified through this endpoint
+  IF v_mem.membership_type = 'admin' THEN
+    RAISE EXCEPTION 'Cannot modify administrator role assignment through this endpoint.';
+  END IF;
+
+  UPDATE public.campus_memberships
+  SET membership_type = p_role,
+      notes = coalesce(p_notes, notes),
+      updated_at = now()
+  WHERE user_id = p_user_id;
+
+  INSERT INTO public.audit_logs (actor_id, action, entity_type, entity_id, details)
+  VALUES (
+    v_caller_id,
+    'MEMBERSHIP_ROLE_UPDATED',
+    'campus_membership',
+    p_user_id,
+    jsonb_build_object('previous_role', v_mem.membership_type, 'new_role', p_role, 'notes', p_notes)
+  );
+
+  RETURN true;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.admin_set_membership_role(UUID, TEXT, TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.admin_set_membership_role(UUID, TEXT, TEXT) TO authenticated;
 
 -- Refresh PostgREST schema cache
 NOTIFY pgrst, 'reload schema';

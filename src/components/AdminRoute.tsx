@@ -4,7 +4,16 @@ import { motion } from 'framer-motion';
 import { ArrowLeft, PackageSearch, ShieldAlert, AlertTriangle, RefreshCw, LogOut } from 'lucide-react';
 import { useAuth } from '../store/AuthContext';
 import { supabase } from '../lib/supabase';
-import { isTrustedAdminUser, getSafeInternalDestination } from '../lib/admin';
+import { isTrustedAdminUser } from '../lib/admin';
+
+// Strict validation of internal redirect destinations (blocks open redirects)
+const getSafeInternalDestination = (pathname: string, search: string): string => {
+  const full = pathname + search;
+  if (full.startsWith('/') && !full.startsWith('//') && !full.includes('\\') && !full.includes('://')) {
+    return full;
+  }
+  return '/admin';
+};
 
 export const AdminRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { session, loading: authLoading, signOut } = useAuth();
@@ -102,7 +111,7 @@ export const AdminRoute: React.FC<{ children: React.ReactNode }> = ({ children }
 
   // 2. Not authenticated -> redirect to admin login with validated destination
   if (!session) {
-    const destination = getSafeInternalDestination(location.pathname + location.search);
+    const destination = getSafeInternalDestination(location.pathname, location.search);
     const redirectUrl = `/admin/login?redirectTo=${encodeURIComponent(destination)}`;
     return <Navigate to={redirectUrl} replace />;
   }

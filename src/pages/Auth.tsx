@@ -42,7 +42,6 @@ export const Auth: React.FC<{ defaultMode?: 'login' | 'signup' }> = ({ defaultMo
     isAuthenticated, 
     isPasswordRecovery, 
     loading,
-    session,
     signOut
   } = useAuth();
 
@@ -50,7 +49,8 @@ export const Auth: React.FC<{ defaultMode?: 'login' | 'signup' }> = ({ defaultMo
   const rawRedirectTo = searchParams.get('redirectTo') || '/';
   const redirectTo = (!rawRedirectTo || rawRedirectTo.startsWith('/login') || rawRedirectTo.startsWith('/signup') || rawRedirectTo.startsWith('/auth')) ? '/' : rawRedirectTo;
 
-  const hasValidRecoverySession = isPasswordRecovery || Boolean(session && searchMode === 'update-password');
+  // Genuine recovery session strictly requires Supabase password recovery state (type=recovery)
+  const hasValidRecoverySession = Boolean(isPasswordRecovery);
 
   // Automatically switch to password recovery mode if detected from URL or Supabase event
   useEffect(() => {
@@ -140,8 +140,8 @@ export const Auth: React.FC<{ defaultMode?: 'login' | 'signup' }> = ({ defaultMo
 
     // Mode-specific validation
     if (mode === 'update-password') {
-      if (password.length < 8) {
-        setErrorMessage('New password must be at least 8 characters long.');
+      if (password.length < 6) {
+        setErrorMessage('New password must be at least 6 characters long.');
         return;
       }
       if (password !== confirmPassword) {
@@ -705,7 +705,7 @@ export const Auth: React.FC<{ defaultMode?: 'login' | 'signup' }> = ({ defaultMo
               <div className="form-group">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
                   <label className="form-label" htmlFor="new-password" style={{ marginBottom: 0 }}>New Password *</label>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Min. 8 characters</span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Min. 6 characters</span>
                 </div>
                 <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
                   <Lock size={18} style={{ position: 'absolute', left: '16px', color: 'var(--text-muted)' }} />

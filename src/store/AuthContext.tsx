@@ -57,8 +57,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const search = window.location.search || '';
       return (
         hash.includes('type=recovery') ||
-        search.includes('type=recovery') ||
-        search.includes('mode=update-password')
+        search.includes('type=recovery')
       );
     }
     return false;

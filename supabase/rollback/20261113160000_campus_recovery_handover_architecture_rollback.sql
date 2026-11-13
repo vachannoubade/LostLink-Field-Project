@@ -71,6 +71,10 @@ DROP TABLE IF EXISTS public.staff_allowlist CASCADE;
 DROP TABLE IF EXISTS public.campus_memberships CASCADE;
 
 -- 4. Drop added stored procedures and helper functions
+DROP FUNCTION IF EXISTS public.admin_set_membership_role(UUID, TEXT, TEXT) CASCADE;
+DROP FUNCTION IF EXISTS public.admin_set_membership_status(UUID, TEXT, TEXT) CASCADE;
+DROP FUNCTION IF EXISTS public.admin_toggle_staff_allowlist(UUID, BOOLEAN) CASCADE;
+DROP FUNCTION IF EXISTS public.admin_add_staff_allowlist(TEXT, TEXT, TEXT, TEXT) CASCADE;
 DROP FUNCTION IF EXISTS public.complete_handover_resolution(UUID, TEXT, TEXT, BOOLEAN) CASCADE;
 DROP FUNCTION IF EXISTS public.review_claim_status(UUID, TEXT, TEXT) CASCADE;
 DROP FUNCTION IF EXISTS public.withdraw_claim_secure(UUID) CASCADE;
@@ -81,7 +85,7 @@ DROP FUNCTION IF EXISTS public.can_access_admin_portal() CASCADE;
 DROP FUNCTION IF EXISTS public.is_current_user_desk_operator() CASCADE;
 DROP FUNCTION IF EXISTS public.is_caller_active_member() CASCADE;
 
--- 5. Restore baseline is_current_user_admin from 20261113120000
+-- 5. Restore baseline is_current_user_admin and resolve_report from earlier schema
 CREATE OR REPLACE FUNCTION public.is_current_user_admin()
 RETURNS boolean
 LANGUAGE sql
@@ -90,6 +94,40 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
   SELECT coalesce(auth.jwt() -> 'app_metadata' ->> 'role', '') = 'admin';
+$$;
+
+CREATE OR REPLACE FUNCTION public.resolve_report(report_id UUID)
+RETURNS public.reports
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_report public.reports;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated';
+  END IF;
+
+  SELECT * INTO v_report
+  FROM public.reports
+  WHERE id = report_id AND user_id = auth.uid();
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Report not found or permission denied';
+  END IF;
+
+  IF v_report.status = 'resolved' THEN
+    RAISE EXCEPTION 'Report is already resolved';
+  END IF;
+
+  UPDATE public.reports
+  SET status = 'resolved', updated_at = now()
+  WHERE id = report_id
+  RETURNING * INTO v_report;
+
+  RETURN v_report;
+END;
 $$;
 
 -- 6. Remove added columns from reports

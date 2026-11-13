@@ -410,11 +410,11 @@ export const AdminPortal: React.FC = () => {
 
     setAddStaffLoading(true);
     try {
-      const { error: insertErr } = await supabase.from('staff_allowlist').insert({
-        email: newStaffEmail.trim().toLowerCase(),
-        name: newStaffName.trim(),
-        department: newStaffDept.trim() || 'General',
-        role: newStaffRole
+      const { error: insertErr } = await supabase.rpc('admin_add_staff_allowlist', {
+        p_email: newStaffEmail.trim().toLowerCase(),
+        p_name: newStaffName.trim(),
+        p_department: newStaffDept.trim() || 'General',
+        p_role: newStaffRole
       });
 
       if (insertErr) {
@@ -434,27 +434,62 @@ export const AdminPortal: React.FC = () => {
     }
   };
 
-  // Toggle Staff Active Status
+  // Toggle Staff Active Status via Secure Admin RPC
   const handleToggleStaffStatus = async (id: string, currentStatus: boolean) => {
     if (!supabase) return;
     try {
-      await supabase.from('staff_allowlist').update({ is_active: !currentStatus }).eq('id', id);
-      refreshRecords();
-    } catch {
-      // Ignored
+      const nextStatus = !currentStatus;
+      const { error: rpcErr } = await supabase.rpc('admin_toggle_staff_allowlist', {
+        p_id: id,
+        p_is_active: nextStatus
+      });
+      if (rpcErr) {
+        setError(`Failed to update staff status: ${rpcErr.message}`);
+      } else {
+        setActionSuccess(`Staff approval ${nextStatus ? 'activated' : 'deactivated'}.`);
+        refreshRecords();
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error updating staff status.');
     }
   };
 
-  // Toggle Membership Status
+  // Toggle Membership Status via Secure Admin RPC
   const handleToggleMembershipStatus = async (userId: string, currentStatus: string) => {
     if (!supabase || !userId) return;
     const nextStatus = currentStatus === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE';
     try {
-      await supabase.from('campus_memberships').update({ status: nextStatus, updated_at: new Date().toISOString() }).eq('user_id', userId);
-      setActionSuccess(`Membership status updated to ${nextStatus}.`);
-      refreshRecords();
-    } catch {
-      // Ignored
+      const { error: rpcErr } = await supabase.rpc('admin_set_membership_status', {
+        p_user_id: userId,
+        p_status: nextStatus
+      });
+      if (rpcErr) {
+        setError(`Failed to update membership status: ${rpcErr.message}`);
+      } else {
+        setActionSuccess(`Membership status updated to ${nextStatus}.`);
+        refreshRecords();
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error updating membership status.');
+    }
+  };
+
+  // Grant or Revoke Desk-Operator Role via Secure Admin RPC
+  const handleSetMembershipRole = async (userId: string, newRole: string) => {
+    if (!supabase || !userId) return;
+    try {
+      const { error: rpcErr } = await supabase.rpc('admin_set_membership_role', {
+        p_user_id: userId,
+        p_role: newRole
+      });
+      if (rpcErr) {
+        setError(`Failed to update membership role: ${rpcErr.message}`);
+      } else {
+        setActionSuccess(`Membership role updated to ${newRole}.`);
+        refreshRecords();
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error updating membership role.');
     }
   };
 
@@ -1095,13 +1130,42 @@ export const AdminPortal: React.FC = () => {
                           {formatDateTime(mem.approvedAt || mem.approved_at || mem.createdAt || mem.created_at)}
                         </td>
                         <td style={{ padding: '10px 14px', textAlign: 'right' }}>
-                          <button
-                            onClick={() => handleToggleMembershipStatus(memUserId, mem.status)}
-                            className="btn btn-secondary"
-                            style={{ padding: '3px 8px', fontSize: '0.74rem', color: mem.status === 'ACTIVE' ? 'var(--danger)' : 'var(--success)' }}
-                          >
-                            {mem.status === 'ACTIVE' ? 'Suspend Account' : 'Reactivate'}
-                          </button>
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                            {memType !== 'admin' && (
+                              <button
+                                onClick={() => handleToggleMembershipStatus(memUserId, mem.status)}
+                                className="btn btn-secondary"
+                                style={{ padding: '3px 8px', fontSize: '0.74rem', color: mem.status === 'ACTIVE' ? 'var(--danger)' : 'var(--success)' }}
+                              >
+                                {mem.status === 'ACTIVE' ? 'Suspend' : 'Reactivate'}
+                              </button>
+                            )}
+                            {memType === 'desk_operator' && (
+                              <button
+                                onClick={() => handleSetMembershipRole(memUserId, 'staff')}
+                                className="btn btn-secondary"
+                                style={{ padding: '3px 8px', fontSize: '0.74rem' }}
+                                title="Revoke desk operator authorization"
+                              >
+                                Revoke Desk
+                              </button>
+                            )}
+                            {(memType === 'staff' || memType === 'student') && (
+                              <button
+                                onClick={() => handleSetMembershipRole(memUserId, 'desk_operator')}
+                                className="btn btn-secondary"
+                                style={{ padding: '3px 8px', fontSize: '0.74rem', color: 'var(--primary)' }}
+                                title="Grant desk operator authorization"
+                              >
+                                Grant Desk
+                              </button>
+                            )}
+                            {memType === 'admin' && (
+                              <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+                                Admin Protected
+                              </span>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );
