@@ -3,6 +3,25 @@ import { supabase } from './supabase';
 export const REPORT_IMAGES_BUCKET = 'report-images';
 export const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
 export const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+export const SENSITIVE_IMAGE_FOLDER = 'sensitive';
+export const NORMAL_SIGNED_URL_TTL_SECONDS = 300;
+export const SENSITIVE_SIGNED_URL_TTL_SECONDS = 60;
+
+export const isSensitiveImagePath = (value?: string | null): boolean => {
+  if (!value) return false;
+  const parts = value.split('/');
+  return parts.length >= 3 && parts[1] === SENSITIVE_IMAGE_FOLDER;
+};
+
+const getSignedUrlTtl = (pathOrUrl?: string | null, expiresIn?: number): number => {
+  const maximum = isSensitiveImagePath(pathOrUrl)
+    ? SENSITIVE_SIGNED_URL_TTL_SECONDS
+    : NORMAL_SIGNED_URL_TTL_SECONDS;
+  return Math.max(1, Math.min(expiresIn ?? maximum, maximum));
+};
+
+const getCacheSafetyMarginMs = (ttlSeconds: number): number =>
+  Math.min(30_000, Math.max(5_000, Math.floor(ttlSeconds * 1000 * 0.1)));
 
 /**
  * Validates file type and size.
@@ -57,11 +76,12 @@ export const clearSignedUrlCache = (): void => {
  * Generates a unique, collision-resistant storage path inside the user's dedicated folder:
  * format: {userId}/{timestamp}-{randomId}.{ext}
  */
-export const generateStoragePath = (userId: string, file: File): string => {
+export const generateStoragePath = (userId: string, file: File, sensitive = false): string => {
   const rawExt = file.name.split('.').pop()?.toLowerCase() || 'jpg';
   const cleanExt = ['jpg', 'jpeg', 'png', 'webp'].includes(rawExt) ? rawExt : 'jpg';
   const uniqueId = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-  return `${userId}/${uniqueId}.${cleanExt}`;
+  const folder = sensitive ? `${SENSITIVE_IMAGE_FOLDER}/` : '';
+  return `${userId}/${folder}${uniqueId}.${cleanExt}`;
 };
 
 /**
@@ -69,7 +89,8 @@ export const generateStoragePath = (userId: string, file: File): string => {
  */
 export const uploadReportImage = async (
   file: File,
-  userId: string
+  userId: string,
+  sensitive = false
 ): Promise<{ path?: string; error?: string }> => {
   if (!supabase) {
     return { error: 'Supabase client is not available.' };
@@ -80,7 +101,7 @@ export const uploadReportImage = async (
     return { error: validation.error };
   }
 
-  const storagePath = generateStoragePath(userId, file);
+  const storagePath = generateStoragePath(userId, file, sensitive);
 
   try {
     const { error: uploadError } = await supabase.storage
@@ -138,11 +159,11 @@ export const deleteReportImage = async (
 
 /**
  * Obtains a temporary signed URL for a private storage image.
- * Returns cached URL if still fresh (with 5-minute safety margin).
+ * Normal images: max 300s. Sensitive images: max 60s.
  */
 export const getReportImageSignedUrl = async (
   pathOrUrl?: string | null,
-  expiresIn = 3600
+  expiresIn?: number
 ): Promise<string | null> => {
   if (!pathOrUrl) return null;
 
@@ -151,9 +172,11 @@ export const getReportImageSignedUrl = async (
     return pathOrUrl;
   }
 
+  const ttl = getSignedUrlTtl(pathOrUrl, expiresIn);
+  const safetyMargin = getCacheSafetyMarginMs(ttl);
   const cached = signedUrlCache.get(pathOrUrl);
   const now = Date.now();
-  if (cached && cached.expiresAt > now + 300 * 1000) {
+  if (cached && cached.expiresAt > now + safetyMargin) {
     return cached.url;
   }
 
@@ -162,7 +185,7 @@ export const getReportImageSignedUrl = async (
   try {
     const { data, error } = await supabase.storage
       .from(REPORT_IMAGES_BUCKET)
-      .createSignedUrl(pathOrUrl, expiresIn);
+      .createSignedUrl(pathOrUrl, ttl);
 
     if (error || !data?.signedUrl) {
       return null;
@@ -170,7 +193,7 @@ export const getReportImageSignedUrl = async (
 
     signedUrlCache.set(pathOrUrl, {
       url: data.signedUrl,
-      expiresAt: now + expiresIn * 1000
+      expiresAt: now + ttl * 1000
     });
 
     return data.signedUrl;
@@ -180,22 +203,26 @@ export const getReportImageSignedUrl = async (
 };
 
 /**
- * Batch resolves signed URLs for a list of storage paths in a single network round-trip.
+ * Batch resolves signed URLs for normal report images only.
+ * Sensitive images must be signed individually.
  */
 export const batchResolveSignedUrls = async (
   paths: string[],
-  expiresIn = 3600
+  expiresIn?: number
 ): Promise<Map<string, string>> => {
   const result = new Map<string, string>();
-  if (!supabase || paths.length === 0) return result;
+  const normalPaths = paths.filter(path => !isSensitiveImagePath(path));
+  if (!supabase || normalPaths.length === 0) return result;
 
+  const ttl = getSignedUrlTtl(undefined, expiresIn);
+  const safetyMargin = getCacheSafetyMarginMs(ttl);
   const now = Date.now();
   const missingPaths: string[] = [];
 
   // Check cache first
-  for (const path of paths) {
+  for (const path of normalPaths) {
     const cached = signedUrlCache.get(path);
-    if (cached && cached.expiresAt > now + 300 * 1000) {
+    if (cached && cached.expiresAt > now + safetyMargin) {
       result.set(path, cached.url);
     } else {
       missingPaths.push(path);
@@ -207,7 +234,7 @@ export const batchResolveSignedUrls = async (
   try {
     const { data, error } = await supabase.storage
       .from(REPORT_IMAGES_BUCKET)
-      .createSignedUrls(missingPaths, expiresIn);
+      .createSignedUrls(missingPaths, ttl);
 
     if (!error && Array.isArray(data)) {
       data.forEach(item => {
@@ -215,7 +242,7 @@ export const batchResolveSignedUrls = async (
           result.set(item.path, item.signedUrl);
           signedUrlCache.set(item.path, {
             url: item.signedUrl,
-            expiresAt: now + expiresIn * 1000
+            expiresAt: now + ttl * 1000
           });
         }
       });

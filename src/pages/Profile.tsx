@@ -40,7 +40,9 @@ export const Profile: React.FC = () => {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px', marginBottom: '28px' }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-            <span className="mono-token mono-token-amber">STUDENT REGISTRY</span>
+            <span className="mono-token mono-token-amber">
+              {profile?.isAdmin ? 'ADMINISTRATOR REGISTRY' : 'STUDENT REGISTRY'}
+            </span>
             <span className="mono-token mono-token-subtle">IDENTITY CREDENTIAL</span>
           </div>
           <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '2.5rem', fontWeight: 600, color: 'var(--text-main)', letterSpacing: '-0.025em', margin: 0, lineHeight: 1.15 }}>
@@ -223,7 +225,7 @@ export const Profile: React.FC = () => {
             boxShadow: 'var(--glass-specular-soft)'
           }}>
             <CheckCircle2 size={14} />
-            Verified Campus Student
+            {profile?.isAdmin ? 'Campus Administrator' : 'Verified Campus Student'}
           </span>
         </div>
 

@@ -1,13 +1,18 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
 import type { Session, AuthError } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { clearSignedUrlCache } from '../lib/storage';
+import { COLLEGE_EMAIL_ERROR, getPrnFromCollegeEmail, normalizeCollegeEmail } from '../lib/collegeEmail';
+import { isTrustedAdminUser } from '../lib/admin';
 import type { User } from '../types';
 
 export interface UserProfile {
   id: string;
   name: string;
   email: string;
+  prn?: string;
   role?: string;
+  isAdmin: boolean;
   created_at?: string;
   updated_at?: string;
 }
@@ -25,6 +30,7 @@ export interface AuthContextType {
   loading: boolean;
   isConfigured: boolean;
   isAuthenticated: boolean;
+  isAdmin: boolean;
   isPasswordRecovery: boolean;
   signUp: (email: string, password: string, name: string) => Promise<SignUpResult>;
   signIn: (email: string, password: string) => Promise<{ error: AuthError | Error | null }>;
@@ -43,6 +49,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [loading, setLoading] = useState<boolean>(isSupabaseConfigured);
 
   const isAuthenticated = Boolean(!loading && session && user);
+  const isAdmin = Boolean(user?.isAdmin);
 
   const [isPasswordRecovery, setIsPasswordRecovery] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
@@ -94,10 +101,19 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     }
 
+    const prn = typeof currentSession.user.user_metadata?.prn === 'string'
+      ? currentSession.user.user_metadata.prn
+      : (getPrnFromCollegeEmail(userEmail) || undefined);
+
+    const isAdmin = isTrustedAdminUser(currentSession.user);
+
     return {
       id: userId,
       name: userName || 'Campus Student',
-      email: userEmail
+      email: userEmail,
+      prn,
+      role: isAdmin ? 'admin' : 'student',
+      isAdmin
     };
   }, []);
 
@@ -123,6 +139,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
         initialSyncDone = true;
         setSession(currentSession);
+        if (event === 'SIGNED_OUT' || !currentSession) {
+          clearSignedUrlCache();
+        }
         if (event === 'PASSWORD_RECOVERY') {
           setIsPasswordRecovery(true);
         }
@@ -145,6 +164,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (!isMounted || initialSyncDone) return;
 
       if (error || !initialSession) {
+        clearSignedUrlCache();
         if (isMounted) {
           setLoading(false);
         }
@@ -175,14 +195,25 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
 
     try {
-      const normalizedEmail = email.trim().toLowerCase();
+      const normalizedEmail = normalizeCollegeEmail(email);
+      const prn = getPrnFromCollegeEmail(normalizedEmail);
+
+      if (!prn) {
+        return {
+          error: new Error(COLLEGE_EMAIL_ERROR),
+          hasSession: false,
+          needsEmailConfirmation: false
+        };
+      }
+
       const { data, error } = await supabase.auth.signUp({
         email: normalizedEmail,
         password,
         options: {
           data: {
             name: name.trim(),
-            full_name: name.trim()
+            full_name: name.trim(),
+            prn
           }
         }
       });
@@ -305,6 +336,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         // Ignore signout network errors
       }
     }
+    clearSignedUrlCache();
     setSession(null);
     setIsPasswordRecovery(false);
     setUser(null);
@@ -314,7 +346,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     id: user.id,
     name: user.name,
     email: user.email,
-    role: 'student'
+    prn: user.prn,
+    role: user.role || (user.isAdmin ? 'admin' : 'student'),
+    isAdmin: Boolean(user.isAdmin)
   } : null;
 
   return (
@@ -326,6 +360,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         loading,
         isConfigured: isSupabaseConfigured,
         isAuthenticated,
+        isAdmin,
         isPasswordRecovery,
         signUp,
         signIn,

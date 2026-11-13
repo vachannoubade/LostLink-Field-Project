@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { AuthProvider } from './store/AuthContext';
 import { DataProvider } from './store/DataContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
+import { AdminRoute } from './components/AdminRoute';
 import { Layout } from './components/Layout';
 import { Dashboard } from './pages/Dashboard';
 import { BrowseItems } from './pages/BrowseItems';
@@ -11,6 +12,7 @@ import { MyReports } from './pages/MyReports';
 import { ItemDetails } from './pages/ItemDetails';
 import { Notifications } from './pages/Notifications';
 import { Profile } from './pages/Profile';
+import { AdminPortal } from './pages/AdminPortal';
 import { Auth } from './pages/Auth';
 import './index.css';
 
@@ -87,6 +89,14 @@ function App() {
                   <ProtectedRoute>
                     <Profile />
                   </ProtectedRoute>
+                )}
+              />
+              <Route
+                path="admin"
+                element={(
+                  <AdminRoute>
+                    <AdminPortal />
+                  </AdminRoute>
                 )}
               />
 

@@ -80,7 +80,6 @@ export const Dashboard: React.FC = () => {
 
   const lostCount = reports.filter(r => r.type === 'lost' && r.status === 'lost').length;
   const foundCount = reports.filter(r => r.type === 'found' && r.status === 'found').length;
-  const recoveredCount = reports.filter(r => r.status === 'resolved').length;
   const matchCount = matches.filter(m => m.status === 'pending').length;
 
   const filteredReports = reports
@@ -185,14 +184,6 @@ export const Dashboard: React.FC = () => {
           sublabel="Algorithmic pairings under review"
           color="primary" 
           onClick={() => navigate('/ai-matches')} 
-        />
-        <div className="dashboard-ledger-divider" style={{ width: '1px', backgroundColor: 'var(--border)' }} />
-        <LedgerItem 
-          label="Archived Reunions" 
-          count={recoveredCount} 
-          sublabel="Successfully reconnected to students"
-          color="text-main" 
-          onClick={() => navigate('/browse')} 
         />
       </div>
 

@@ -151,11 +151,13 @@ erDiagram
 | **`profiles`** | `Profiles are readable by authenticated users` | `SELECT` | `authenticated` | `true` | Allows students to see the display name of item reporters on cards/detail pages. |
 | **`profiles`** | `Users can insert their own profile` | `INSERT` | `authenticated` | `auth.uid() = id` | Fallback policy allowing a user to initialize their profile if the trigger was bypassed. |
 | **`profiles`** | `Users can update their own profile` | `UPDATE` | `authenticated` | `auth.uid() = id` | Prevents students from tampering with other students' names. |
-| **`reports`** | `Reports are readable by authenticated users` | `SELECT` | `authenticated` | `true` | Allows authenticated campus students to browse all active lost and found reports. |
+| **`reports`** | `Active reports are readable by authenticated users` | `SELECT` | `authenticated` | `status <> 'resolved' OR is_current_user_admin()` | Active reports are browsable by students; resolved records are administrator-only. |
+| **`reports`** | `Resolved reports require administrator access` | `SELECT` (RESTRICTIVE) | `authenticated` | `status <> 'resolved' OR is_current_user_admin()` | Prevents stale permissive policies from exposing the resolved archive. |
 | **`reports`** | `Users can create their own reports` | `INSERT` | `authenticated` | `auth.uid() = user_id` | Enforces that any submitted report is attributed strictly to the submitting user. |
 | **`reports`** | `Users can update their own reports` | `UPDATE` | `authenticated` | `auth.uid() = user_id` | Allows owners to update active reports while preventing transfer of ownership. |
 | **`reports`** | `Users can delete their own reports` | `DELETE` | `authenticated` | `auth.uid() = user_id` | Ensures only the item owner can delete a report. |
 | **`matches`** | `Users can view matches involving their reports` | `SELECT` | `authenticated` | `EXISTS (... user_id = auth.uid())` | Users only see potential matches that reference an item they own (`lost` or `found`). |
+| **`matches`** | `Administrators can view all matches` | `SELECT` | `authenticated` | `is_current_user_admin()` | Administrators can inspect all persisted match records in the oversight portal. |
 | **`notifications`** | `Users can view their own notifications` | `SELECT` | `authenticated` | `auth.uid() = user_id` | Keeps notification messages strictly private to the intended recipient. |
 | **`notifications`** | `Users can update their own notifications` | `UPDATE` | `authenticated` | `auth.uid() = user_id` | Allows users to toggle `read: true` on their own notifications. |
 | **`notifications`** | `Users can delete their own notifications` | `DELETE` | `authenticated` | `auth.uid() = user_id` | Allows users to clear items from their inbox. |
@@ -163,6 +165,17 @@ erDiagram
 ### Withheld Client Writes
 - **`public.matches` (INSERT, UPDATE, DELETE)**: Direct client mutation policies are deliberately omitted. PostgreSQL defaults to **DENY ALL**. Match calculation and status transitions must be executed via trusted backend triggers or Edge Functions.
 - **`public.notifications` (INSERT)**: Direct client insertion is deliberately omitted. Users cannot inject arbitrary notifications into other users' inboxes.
+
+### Stage-Ready Hardening
+[`20261113120000_stage_ready_access_hardening.sql`](file:///d:/field%20project/supabase/migrations/20261113120000_stage_ready_access_hardening.sql) adds the resolved-report and sensitive-image rules on top of the historical schema. It also:
+
+- defines `public.is_current_user_admin()` against trusted `app_metadata.role`;
+- re-declares the `report-images` bucket and complete storage policy set, so it is independent of the empty historical storage file;
+- uses restrictive policies to neutralize stale permissive policies;
+- grants administrators read access to matches;
+- enforces the `@sguk.ac.in` domain for new accounts with `public.enforce_college_email_domain()`.
+
+Administrator provisioning, staging verification, backup, and rollback steps are in [`STAGE_READY_DEPLOYMENT.md`](file:///d:/field%20project/supabase/STAGE_READY_DEPLOYMENT.md).
 
 ---
 
@@ -198,9 +211,13 @@ Reports in LostLink frequently contain pictures of **Student ID Cards**, driver'
    - Bucket ID: `report-images`
    - Access: `public = false` (Private bucket)
 2. **Access Policies on `storage.objects`**:
-   - **Upload**: `auth.uid() = (storage.foldername(name))[1]::uuid` restricts upload folders to the user's UUID (`<user_id>/<report_id>-<file>`).
-   - **Download / View**: Authorized authenticated campus students retrieve short-lived signed URLs (`createSignedUrl(path, 3600)`) or authenticated downloads via the Supabase client.
-   - **Delete**: Only the folder owner (`auth.uid() = (storage.foldername(name))[1]::uuid`) can delete stored images.
+   - **Upload**: `auth.uid() = (storage.foldername(name))[1]` restricts upload folders to the user's UUID. Path traversal segments (`..`) and leading slashes are rejected.
+   - **Sensitive images**: `<user_id>/sensitive/<file>` is readable only by the folder owner or an administrator, regardless of report status.
+   - **Resolved-report images**: A normal image attached to a resolved report is readable only by the folder owner or an administrator.
+   - **Active normal images**: Readable by authenticated campus members through short-lived signed URLs only when the attached active report belongs to the storage folder owner. A path that does not match the report owner is treated as owner/admin-only.
+   - **Orphan images**: Not yet attached to a report; readable only by the folder owner or an administrator.
+   - **Delete**: Only the folder owner can delete stored images. Restrictive write policies prevent stale permissive policies from bypassing the owner-folder rule.
+   - **Administrator access**: Requires the trusted `app_metadata.role = "admin"` claim; editable user metadata is ignored.
 
 ---
 
@@ -220,6 +237,16 @@ Reports in LostLink frequently contain pictures of **Student ID Cards**, driver'
   - `DROP TRIGGER IF EXISTS ... CREATE TRIGGER ...`
   - `DROP POLICY IF EXISTS ... CREATE POLICY ...`
 - If you ran an earlier draft of this migration, rerunning the script will safely add the missing triggers, constraints (`check_report_status_matches_type`, `unique_match_pair`), and procedures without throwing duplicate errors.
+
+### Migration Order
+Apply these in timestamp order:
+
+1. `20261012163500_initial_schema.sql`
+2. `20261014111500_report_images_storage.sql` — intentionally empty in this working tree; the hardening migration below recreates the bucket and full storage policy set.
+3. `20261015113000_ownership_verification.sql`
+4. `20261113120000_stage_ready_access_hardening.sql`
+
+For staging/live deployment, backup, verification, and rollback, follow [`STAGE_READY_DEPLOYMENT.md`](file:///d:/field%20project/supabase/STAGE_READY_DEPLOYMENT.md).
 
 ---
 
@@ -250,8 +277,8 @@ DECLARE
   v_count INT;
 BEGIN
   -- Insert mock auth users for testing
-  INSERT INTO auth.users (id, email) VALUES (v_user_a, 'user_a@test.edu') ON CONFLICT DO NOTHING;
-  INSERT INTO auth.users (id, email) VALUES (v_user_b, 'user_b@test.edu') ON CONFLICT DO NOTHING;
+  INSERT INTO auth.users (id, email) VALUES (v_user_a, 'usera@sguk.ac.in') ON CONFLICT DO NOTHING;
+  INSERT INTO auth.users (id, email) VALUES (v_user_b, 'userb@sguk.ac.in') ON CONFLICT DO NOTHING;
 
   -- Verify trigger created profiles
   PERFORM public.handle_new_user();
@@ -420,3 +447,5 @@ DROP FUNCTION IF EXISTS public.handle_report_resolved CASCADE;
 DROP FUNCTION IF EXISTS public.resolve_report CASCADE;
 DROP FUNCTION IF EXISTS public.ensure_profile_exists CASCADE;
 ```
+
+For an emergency rollback of the stage-ready hardening migration only, use [`rollback/20261113120000_stage_ready_access_hardening_rollback.sql`](file:///d:/field%20project/supabase/rollback/20261113120000_stage_ready_access_hardening_rollback.sql). It restores the previous, less-secure access behavior; follow the staged procedure in [`STAGE_READY_DEPLOYMENT.md`](file:///d:/field%20project/supabase/STAGE_READY_DEPLOYMENT.md).

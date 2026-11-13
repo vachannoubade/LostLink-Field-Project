@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useAuth } from '../store/AuthContext';
+import { COLLEGE_EMAIL_DOMAIN, COLLEGE_EMAIL_ERROR, isCollegeEmail } from '../lib/collegeEmail';
 import { 
   PackageSearch, Mail, Lock, User, Eye, EyeOff, 
   AlertCircle, CheckCircle2, ArrowRight, ArrowLeft,
@@ -150,6 +151,11 @@ export const Auth: React.FC<{ defaultMode?: 'login' | 'signup' }> = ({ defaultMo
 
       if (!trimmedEmail.includes('@') || !trimmedEmail.includes('.')) {
         setErrorMessage('Please enter a valid email address.');
+        return;
+      }
+
+      if (mode === 'signup' && !isCollegeEmail(trimmedEmail)) {
+        setErrorMessage(COLLEGE_EMAIL_ERROR);
         return;
       }
 
@@ -533,14 +539,14 @@ export const Auth: React.FC<{ defaultMode?: 'login' | 'signup' }> = ({ defaultMo
           {/* Email (Login, Signup, Forgot) */}
           {mode !== 'update-password' && (
             <div className="form-group">
-              <label className="form-label" htmlFor="auth-email">University Email *</label>
+              <label className="form-label" htmlFor="auth-email">College Email *</label>
               <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
                 <Mail size={18} style={{ position: 'absolute', left: '16px', color: 'var(--text-muted)' }} />
                 <input
                   id="auth-email"
                   type="email"
                   required
-                  placeholder="student@university.edu"
+                  placeholder={`yourPRNnumber@${COLLEGE_EMAIL_DOMAIN}`}
                   className="form-control"
                   style={{ paddingLeft: '44px' }}
                   value={email}
@@ -548,6 +554,9 @@ export const Auth: React.FC<{ defaultMode?: 'login' | 'signup' }> = ({ defaultMo
                   disabled={submitting}
                 />
               </div>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.78rem', marginTop: '6px' }}>
+                New accounts must use yourPRNnumber@{COLLEGE_EMAIL_DOMAIN}. Existing accounts can still sign in.
+              </p>
             </div>
           )}
 

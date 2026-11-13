@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "test": "node --test --experimental-strip-types tests/matching.test.ts tests/verification.test.ts",
+    "test": "node --test --experimental-strip-types tests/matching.test.ts tests/verification.test.ts tests/supabaseUrl.test.ts tests/collegeEmail.test.ts tests/adminAccess.test.ts",
+    "test:db": "node --test tests/db/stageReadyAccessHardening.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -19,6 +20,7 @@
     "react-router-dom": "^7.18.4"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.16",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",

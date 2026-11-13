@@ -1,33 +1,14 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
-// Read environment variables (supports Vite, Next.js, and standard Supabase Vercel integration naming)
-const globalObj = typeof globalThis !== 'undefined' ? (globalThis as Record<string, unknown>) : {};
-const nodeProcessEnv = (globalObj.process as { env?: Record<string, string | undefined> } | undefined)?.env;
-const metaEnv = (
-  typeof import.meta !== 'undefined' && import.meta.env
-    ? import.meta.env
-    : (nodeProcessEnv || {})
-) as Record<string, string | undefined>;
-
-const rawUrl = (
-  metaEnv.VITE_SUPABASE_URL ||
-  metaEnv.NEXT_PUBLIC_SUPABASE_URL ||
-  metaEnv.SUPABASE_URL
-)?.trim();
+// Only explicitly approved public VITE_ variables are injected by vite.config.ts.
+const metaEnv = import.meta.env as ImportMetaEnv | undefined;
+const rawUrl = metaEnv?.VITE_SUPABASE_URL?.trim();
 
 const supabaseUrl = rawUrl ? rawUrl.replace(/\/rest\/v1\/?$/, '').replace(/\/+$/, '') : undefined;
 
-const supabaseAnonKey = (
-  metaEnv.VITE_SUPABASE_ANON_KEY ||
-  metaEnv.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-  metaEnv.SUPABASE_ANON_KEY
-)?.trim();
+const supabaseAnonKey = metaEnv?.VITE_SUPABASE_ANON_KEY?.trim();
 
-const supabasePublishableKey = (
-  metaEnv.VITE_SUPABASE_PUBLISHABLE_KEY ||
-  metaEnv.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-  metaEnv.SUPABASE_PUBLISHABLE_KEY
-)?.trim();
+const supabasePublishableKey = metaEnv?.VITE_SUPABASE_PUBLISHABLE_KEY?.trim();
 
 // Support standard JWT-based anon key or newer Supabase publishable key format.
 // Both are public keys designed for client-side use with Row Level Security (RLS).

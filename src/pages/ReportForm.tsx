@@ -7,7 +7,7 @@ import {
   Lock, Globe, MapPin, Tag, Calendar, ShieldCheck, Eye, EyeOff 
 } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { validateImageFile, uploadReportImage, deleteReportImage } from '../lib/storage';
+import { validateImageFile, uploadReportImage, deleteReportImage, isSensitiveImagePath } from '../lib/storage';
 import { validatePin, validateClue, setReportVerification, getOwnerVerification } from '../lib/verification';
 import { CATEGORY_OPTIONS } from '../utils/categoryArt';
 
@@ -88,6 +88,7 @@ export const ReportForm: React.FC = () => {
   }
   
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isSensitiveImage, setIsSensitiveImage] = useState(() => isSensitiveImagePath(existingReport?.imagePath));
   const [imageError, setImageError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -144,6 +145,7 @@ export const ReportForm: React.FC = () => {
       URL.revokeObjectURL(formData.imageUrl);
     }
     setSelectedFile(null);
+    setIsSensitiveImage(false);
     setFormData(prev => ({ ...prev, imageUrl: '' }));
     setImageError(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -201,7 +203,7 @@ export const ReportForm: React.FC = () => {
       // 1. Upload local file to private Supabase Storage if present
       if (selectedFile) {
         setUploadStatus('Uploading image to private storage...');
-        const uploadResult = await uploadReportImage(selectedFile, user.id);
+        const uploadResult = await uploadReportImage(selectedFile, user.id, isSensitiveImage);
 
         if (uploadResult.error || !uploadResult.path) {
           setSubmitError(uploadResult.error || 'Failed to upload image. Please try again.');
@@ -817,6 +819,37 @@ export const ReportForm: React.FC = () => {
                   </div>
                 )}
               </div>
+
+              {(!existingReport?.imagePath || selectedFile) && (
+                <label style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '10px',
+                  marginTop: '12px',
+                  padding: '12px 14px',
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1px solid var(--border)',
+                  backgroundColor: isSensitiveImage ? 'var(--primary-light)' : 'rgba(255, 255, 255, 0.55)',
+                  cursor: isSaving ? 'not-allowed' : 'pointer'
+                }}>
+                  <input
+                    type="checkbox"
+                    checked={isSensitiveImage}
+                    onChange={(e) => setIsSensitiveImage(e.target.checked)}
+                    disabled={isSaving}
+                    style={{ marginTop: '2px' }}
+                  />
+                  <span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.86rem', fontWeight: 650, color: 'var(--text-main)' }}>
+                      <Lock size={14} />
+                      Sensitive document photo
+                    </span>
+                    <span style={{ display: 'block', color: 'var(--text-muted)', fontSize: '0.78rem', marginTop: '3px', lineHeight: 1.45 }}>
+                      Use for ID cards, licenses, or documents. Only you can view this image; it is excluded from shared listings.
+                    </span>
+                  </span>
+                </label>
+              )}
             </div>
           </div>
 

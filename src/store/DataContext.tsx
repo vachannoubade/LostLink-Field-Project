@@ -6,6 +6,7 @@ import { useAuth } from './AuthContext';
 import { supabase } from '../lib/supabase';
 import {
   isStoragePath,
+  isSensitiveImagePath,
   batchResolveSignedUrls,
   getReportImageSignedUrl,
   deleteReportImage,
@@ -53,7 +54,11 @@ interface SupabaseNotificationRow {
   created_at: string;
 }
 
-const rowToReport = (row: SupabaseReportRow, signedUrl?: string): Report => {
+const rowToReport = (
+  row: SupabaseReportRow,
+  signedUrl?: string,
+  allowSensitivePath = true
+): Report => {
   let detectedZone: string | undefined = undefined;
   for (const zone of CAMPUS_ZONES) {
     if (row.location.toLowerCase().includes(zone.toLowerCase())) {
@@ -61,6 +66,9 @@ const rowToReport = (row: SupabaseReportRow, signedUrl?: string): Report => {
       break;
     }
   }
+
+  const storagePath = isStoragePath(row.image_url) ? (row.image_url ?? undefined) : undefined;
+  const canExposeImage = allowSensitivePath || !isSensitiveImagePath(storagePath);
 
   return {
     id: row.id,
@@ -72,8 +80,10 @@ const rowToReport = (row: SupabaseReportRow, signedUrl?: string): Report => {
     campusZone: detectedZone,
     date: row.date,
     time: row.time ?? undefined,
-    imageUrl: isStoragePath(row.image_url) ? signedUrl : (row.image_url ?? undefined),
-    imagePath: isStoragePath(row.image_url) ? (row.image_url ?? undefined) : undefined,
+    imageUrl: canExposeImage
+      ? (storagePath ? signedUrl : (row.image_url ?? undefined))
+      : undefined,
+    imagePath: canExposeImage ? storagePath : undefined,
     status: row.status,
     userId: row.user_id,
     createdAt: row.created_at,
@@ -164,6 +174,7 @@ const DataContext = createContext<DataContextType | undefined>(undefined);
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const auth = useAuth();
   const user: User = auth.user || { id: '', name: 'Campus Student', email: '' };
+  const authUserId = auth.user?.id;
 
   // -----------------------------------------------------------------------
   // State
@@ -191,10 +202,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setError(null);
 
     try {
-      // 1. Fetch shared reports (accessible publicly to all visitors per Supabase RLS)
+      // 1. Fetch active reports only. Resolved records remain in the database
+      // but are not exposed to student-facing listings or direct client reads.
       const { data: reportsData, error: reportsError } = await supabase
         .from('reports')
         .select('*')
+        .neq('status', 'resolved')
         .order('created_at', { ascending: false });
 
       if (reportsError) {
@@ -204,18 +217,35 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       const rows: SupabaseReportRow[] = reportsData || [];
-      const storagePaths = rows
+      const normalPaths = rows
         .map(r => r.image_url)
-        .filter((url): url is string => Boolean(url && isStoragePath(url)));
+        .filter((url): url is string =>
+          Boolean(url && isStoragePath(url) && !isSensitiveImagePath(url))
+        );
+      const sensitivePaths = rows
+        .map(r => r.image_url)
+        .filter((url): url is string =>
+          Boolean(url && isStoragePath(url) && isSensitiveImagePath(url))
+        );
 
       let signedUrlMap = new Map<string, string>();
-      if (storagePaths.length > 0) {
-        signedUrlMap = await batchResolveSignedUrls(storagePaths, 3600);
+      if (normalPaths.length > 0) {
+        signedUrlMap = await batchResolveSignedUrls(normalPaths);
+      }
+
+      if (sensitivePaths.length > 0 && authUserId) {
+        for (const path of sensitivePaths) {
+          const ownsPath = rows.some(r => r.image_url === path && r.user_id === authUserId);
+          if (!ownsPath) continue;
+          const signedUrl = await getReportImageSignedUrl(path);
+          if (signedUrl) signedUrlMap.set(path, signedUrl);
+        }
       }
 
       setReports(rows.map(row => {
         const signedUrl = row.image_url ? signedUrlMap.get(row.image_url) : undefined;
-        return rowToReport(row, signedUrl);
+        const isOwner = row.user_id === authUserId;
+        return rowToReport(row, signedUrl, isOwner);
       }));
 
       // 2. Fetch authenticated user data (matches & notifications)
@@ -242,6 +272,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setNotifications(notifsData.map(rowToNotification));
         }
       } else {
+        setMatches([]);
         setNotifications([]);
       }
     } catch (err) {
@@ -249,7 +280,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       setLoading(false);
     }
-  }, [auth.isAuthenticated]);
+  }, [auth.isAuthenticated, authUserId]);
 
   // Synchronize with auth state changes
   useEffect(() => {
@@ -366,7 +397,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (data) {
         let signedUrl: string | undefined = undefined;
         if (data.image_url && isStoragePath(data.image_url)) {
-          signedUrl = (await getReportImageSignedUrl(data.image_url, 3600)) || undefined;
+          signedUrl = (await getReportImageSignedUrl(data.image_url)) || undefined;
         }
         setReports(prev => [rowToReport(data, signedUrl), ...prev]);
         return { success: true, id: data.id };
@@ -423,7 +454,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       let signedUrl: string | undefined = undefined;
       if (data.image_url && isStoragePath(data.image_url)) {
-        signedUrl = (await getReportImageSignedUrl(data.image_url, 3600)) || undefined;
+        signedUrl = (await getReportImageSignedUrl(data.image_url)) || undefined;
       }
 
       setReports(prev => prev.map(r => r.id === id ? rowToReport(data, signedUrl) : r));
@@ -442,6 +473,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
+      if (reportToDelete?.imagePath && reportToDelete.userId === user.id) {
+        const imageDeletion = await deleteReportImage(reportToDelete.imagePath);
+        if (!imageDeletion.success) {
+          return {
+            success: false,
+            error: imageDeletion.error || 'Could not delete the attached image. The report was not removed.'
+          };
+        }
+      }
+
       const { data, error: deleteError } = await supabase
         .from('reports')
         .delete()
@@ -458,10 +499,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       setReports(prev => prev.filter(r => r.id !== id));
       setMatches(prev => prev.filter(m => m.lostReportId !== id && m.foundReportId !== id));
-
-      if (reportToDelete?.imagePath && reportToDelete.userId === user.id) {
-        deleteReportImage(reportToDelete.imagePath).catch(() => {});
-      }
 
       return { success: true };
     } catch (err) {
@@ -487,7 +524,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { success: false, error: 'Report not found or permission denied' };
       }
 
-      setReports(prev => prev.map(r => r.id === id ? rowToReport(data) : r));
+      setReports(prev => prev.filter(r => r.id !== id));
 
       setMatches(prev => prev.map(m =>
         (m.lostReportId === id || m.foundReportId === id) && m.status === 'pending'

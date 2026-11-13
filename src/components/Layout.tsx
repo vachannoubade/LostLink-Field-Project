@@ -7,7 +7,7 @@ import { CustomCursor } from './CustomCursor';
 import { 
   LayoutDashboard, Search, FilePlus, User,
   Bell, Sparkles, FolderOpen, ChevronRight,
-  PackageSearch, Menu, X, Home, LogIn, LogOut, type LucideIcon
+  PackageSearch, Menu, X, Home, LogIn, LogOut, ShieldCheck, type LucideIcon
 } from 'lucide-react';
 
 interface NavItemProps {
@@ -166,6 +166,15 @@ export const Layout: React.FC = () => {
           </div>
           <NavItem to="/my-reports" icon={FolderOpen} label="My Items" />
           <NavItem to="/ai-matches" icon={Sparkles} label="AI Matches" badge={pendingMatchCount} />
+
+          {profile?.isAdmin && (
+            <>
+              <div style={{ padding: '16px 24px 6px', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                Administration
+              </div>
+              <NavItem to="/admin" icon={ShieldCheck} label="Admin Portal" />
+            </>
+          )}
         </nav>
 
         {/* User / Sign Out Footer */}
@@ -394,6 +403,9 @@ export const Layout: React.FC = () => {
                   <div style={{ margin: '14px 20px', height: '1px', backgroundColor: 'var(--border)' }} />
                   <NavItem to="/my-reports" icon={FolderOpen} label="My Items" onNavigate={() => setMobileMenuOpen(false)} />
                   <NavItem to="/ai-matches" icon={Sparkles} label="AI Matches" badge={pendingMatchCount} onNavigate={() => setMobileMenuOpen(false)} />
+                  {profile?.isAdmin && (
+                    <NavItem to="/admin" icon={ShieldCheck} label="Admin Portal" onNavigate={() => setMobileMenuOpen(false)} />
+                  )}
                   <NavItem to="/profile" icon={User} label="Profile" onNavigate={() => setMobileMenuOpen(false)} />
                   <div style={{ margin: '14px 20px', height: '1px', backgroundColor: 'var(--border)' }} />
                   {isAuthenticated ? (

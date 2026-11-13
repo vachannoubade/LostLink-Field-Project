@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 
-type FilterTab = 'all' | 'lost' | 'found' | 'resolved';
+type FilterTab = 'all' | 'lost' | 'found';
 
 
 
@@ -34,11 +34,9 @@ export const MyReports: React.FC = () => {
 
   const lostCount = myReports.filter(r => r.type === 'lost' && r.status === 'lost').length;
   const foundCount = myReports.filter(r => r.type === 'found' && r.status === 'found').length;
-  const resolvedCount = myReports.filter(r => r.status === 'resolved').length;
 
   const filteredReports = myReports.filter(report => {
     if (activeTab === 'all') return true;
-    if (activeTab === 'resolved') return report.status === 'resolved';
     return report.type === activeTab && report.status !== 'resolved';
   });
 
@@ -151,8 +149,7 @@ export const MyReports: React.FC = () => {
         {[
           { id: 'all', label: 'TOTAL SUBMISSIONS', count: myReports.length, color: 'var(--text-main)', marker: '■' },
           { id: 'lost', label: 'ACTIVE INQUIRIES', count: lostCount, color: '#B45309', marker: '●' },
-          { id: 'found', label: 'IN CAMPUS CUSTODY', count: foundCount, color: '#047857', marker: '◆' },
-          { id: 'resolved', label: 'REUNITED & ARCHIVED', count: resolvedCount, color: '#1E293B', marker: '✔' }
+          { id: 'found', label: 'IN CAMPUS CUSTODY', count: foundCount, color: '#047857', marker: '◆' }
         ].map((stat, idx) => {
           const isActive = activeTab === stat.id;
           return (
@@ -219,8 +216,7 @@ export const MyReports: React.FC = () => {
             {[
               { id: 'all', label: `All Docket (${myReports.length})` },
               { id: 'lost', label: `Active Search (${lostCount})` },
-              { id: 'found', label: `In Custody (${foundCount})` },
-              { id: 'resolved', label: `Reunited (${resolvedCount})` }
+              { id: 'found', label: `In Custody (${foundCount})` }
             ].map(tab => {
               const isSelected = activeTab === tab.id;
               return (
