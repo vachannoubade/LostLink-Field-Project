@@ -1,22 +1,35 @@
 -- =============================================================================
--- LostLink — Final Campus Recovery & Helpdesk Handover Architecture
+-- LostLink — Final Campus Recovery & Helpdesk Handover Architecture (Hardened)
 -- Migration Timestamp: 20261113160000
 -- =============================================================================
 -- Apply in order after 20261113120000_stage_ready_access_hardening.sql.
 --
--- This migration implements:
---   1. Campus memberships (active authorization, roles, suspension/revocation).
---   2. Staff approval allowlist (administrator-controlled staff/operator access).
---   3. Structured report attributes (brand, color, zone, custody status).
---   4. Private identifying details (replacing confusing PIN for new reports).
---   5. Claims lifecycle & recovery state machine (REQUESTED -> RESOLVED).
---   6. Helpdesk custody & handover records.
---   7. Server-enforced abuse protection & rate-limit events.
---   8. Administrative audit logs & moderation abuse reports.
---   9. Configurable campus helpdesks.
---  10. Strict administrator provisioning for vachannoubade@gmail.com.
---
--- Non-destructive: preserves all existing data, auth, reports, and legacy PINs.
+-- Security Hardening Enhancements:
+--   1. Direct API Bypasses Closed:
+--      - Direct mutations on claims, handovers, memberships, and staff allowlist
+--        are revoked from authenticated role and routed exclusively via secure RPCs.
+--      - Direct INSERT/UPDATE on reports and moderation_reports guarded by strict
+--        BEFORE triggers enforcing ownership, quotas, validation, and state machines.
+--   2. Claim-Status Manipulation Prevented:
+--      - Explicit authorized state machine (REQUESTED -> UNDER_REVIEW ->
+--        APPROVED_FOR_HANDOVER -> RESOLVED).
+--      - Claimants can only withdraw; only desk operators/admins can review/approve.
+--      - Handover procedure is atomic with comprehensive audit logs.
+--   3. Secure Physical Handovers:
+--      - complete_handover_resolution accepts ONLY claims in APPROVED_FOR_HANDOVER status.
+--      - Rejects REQUESTED, UNDER_REVIEW, DISPUTED, REJECTED, WITHDRAWN, RESOLVED.
+--      - Validates found and linked lost reports (active, correct types, ownership).
+--      - Requires physical ID verification and condition notes; blocks duplicate handovers.
+--   4. Universal Membership Revocation:
+--      - Suspended and revoked users immediately lose report, image, claim, and
+--        private detail access. Stale JWT admin/desk claims cannot bypass revocation.
+--   5. Concurrency-Safe Quotas:
+--      - Rate limits use PostgreSQL transaction advisory locks (pg_advisory_xact_lock)
+--        to prevent TOCTOU race conditions. Validates all supported action types.
+--   6. Staff Trust Hardened:
+--      - Membership sync never trusts user-editable user_metadata; checks only staff_allowlist.
+--   7. Safe Rollback:
+--      - Non-destructive safety checks protect production audit logs and recovery records.
 
 -- -----------------------------------------------------------------------------
 -- 1. Campus Memberships Table
@@ -44,7 +57,6 @@ ALTER TABLE public.campus_memberships ENABLE ROW LEVEL SECURITY;
 -- -----------------------------------------------------------------------------
 -- 2. Staff Allowlist Table
 -- -----------------------------------------------------------------------------
--- Administrator-controlled pre-approved faculty and staff accounts.
 CREATE TABLE IF NOT EXISTS public.staff_allowlist (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   email TEXT NOT NULL UNIQUE,
@@ -72,7 +84,7 @@ CREATE TABLE IF NOT EXISTS public.campus_desks (
   room_number TEXT,
   hours_of_operation TEXT,
   is_active BOOLEAN NOT NULL DEFAULT true,
-  is_configured BOOLEAN NOT NULL DEFAULT false, -- Clearly marks if institutional setup remains necessary
+  is_configured BOOLEAN NOT NULL DEFAULT false,
   notes TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -106,7 +118,6 @@ ALTER TABLE public.reports
   ADD COLUMN IF NOT EXISTS desk_id UUID REFERENCES public.campus_desks(id) ON DELETE SET NULL,
   ADD COLUMN IF NOT EXISTS private_evidence TEXT;
 
--- Validation constraints on reports (5-70 title chars, max 700 desc chars, max 100 words)
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'check_report_title_length') THEN
@@ -123,10 +134,8 @@ BEGIN
 END $$;
 
 -- -----------------------------------------------------------------------------
--- 5. Private Identifying Details Table (Replacing Confusing PIN)
+-- 5. Private Identifying Details Table
 -- -----------------------------------------------------------------------------
--- Optional private details for lost items that only genuine owners know.
--- Strictly hidden from public/other students; accessible to uploader and desk/admin.
 CREATE TABLE IF NOT EXISTS public.report_private_details (
   report_id UUID PRIMARY KEY REFERENCES public.reports(id) ON DELETE CASCADE,
   owner_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -194,7 +203,7 @@ ALTER TABLE public.handover_records ENABLE ROW LEVEL SECURITY;
 CREATE TABLE IF NOT EXISTS public.rate_limit_events (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  action_type TEXT NOT NULL CHECK (action_type IN ('new_report', 'report_edit', 'new_claim', 'abuse_report')),
+  action_type TEXT NOT NULL CHECK (action_type IN ('new_report', 'report_edit', 'new_claim', 'abuse_report', 'upload_image')),
   target_id UUID,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -257,13 +266,32 @@ AS $$
     WHERE cm.user_id = auth.uid()
       AND cm.status = 'ACTIVE'
       AND (cm.expires_at IS NULL OR cm.expires_at > now())
-  ) OR public.is_current_user_admin();
+  );
 $$;
 
 REVOKE ALL ON FUNCTION public.is_caller_active_member() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.is_caller_active_member() TO authenticated;
 
--- Helper: Check if caller is authorized desk operator or admin
+-- Helper: Check if caller is administrator (must have app_metadata role=admin AND NOT be suspended/revoked)
+CREATE OR REPLACE FUNCTION public.is_current_user_admin()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT (coalesce(auth.jwt() -> 'app_metadata' ->> 'role', '') = 'admin')
+     AND NOT EXISTS (
+       SELECT 1 FROM public.campus_memberships cm
+       WHERE cm.user_id = auth.uid()
+         AND cm.status IN ('SUSPENDED', 'REVOKED')
+     );
+$$;
+
+REVOKE ALL ON FUNCTION public.is_current_user_admin() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.is_current_user_admin() TO authenticated, anon;
+
+-- Helper: Check if caller is authorized desk operator or active admin
 CREATE OR REPLACE FUNCTION public.is_current_user_desk_operator()
 RETURNS boolean
 LANGUAGE sql
@@ -271,25 +299,91 @@ STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
-  SELECT public.is_current_user_admin() OR EXISTS (
-    SELECT 1 FROM public.campus_memberships cm
-    WHERE cm.user_id = auth.uid()
-      AND cm.status = 'ACTIVE'
-      AND cm.membership_type IN ('desk_operator', 'admin')
-  ) OR coalesce(auth.jwt() -> 'app_metadata' ->> 'role', '') IN ('desk_operator', 'admin');
+  SELECT public.is_current_user_admin() OR (
+    public.is_caller_active_member() AND EXISTS (
+      SELECT 1 FROM public.campus_memberships cm
+      WHERE cm.user_id = auth.uid()
+        AND cm.status = 'ACTIVE'
+        AND cm.membership_type IN ('desk_operator', 'admin')
+        AND (cm.expires_at IS NULL OR cm.expires_at > now())
+    )
+  );
 $$;
 
 REVOKE ALL ON FUNCTION public.is_current_user_desk_operator() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.is_current_user_desk_operator() TO authenticated;
 
+-- Hardened storage image access: suspended or revoked users cannot access ANY report images
+CREATE OR REPLACE FUNCTION public.can_access_report_image(object_name text)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public, storage
+AS $$
+DECLARE
+  caller_id uuid;
+  path_owner text;
+  attached_report public.reports%ROWTYPE;
+BEGIN
+  caller_id := auth.uid();
+  IF caller_id IS NULL THEN
+    RETURN false;
+  END IF;
+
+  -- Suspended or revoked members are immediately denied all image access
+  IF NOT public.is_caller_active_member() THEN
+    RETURN false;
+  END IF;
+
+  -- Administrators have full read access to images for audit and recovery
+  IF public.is_current_user_admin() THEN
+    RETURN true;
+  END IF;
+
+  path_owner := (storage.foldername(object_name))[1];
+
+  SELECT * INTO attached_report
+  FROM public.reports
+  WHERE image_url = object_name
+     OR image_url = 'report-images/' || object_name
+     OR image_url LIKE '%' || object_name
+  LIMIT 1;
+
+  IF FOUND THEN
+    -- Resolved report images are strictly restricted to administrators
+    IF attached_report.status = 'resolved' THEN
+      RETURN false;
+    END IF;
+
+    -- Sensitive folder images are strictly restricted to owner and administrator
+    IF object_name LIKE '%/sensitive/%' THEN
+      RETURN caller_id::text = attached_report.user_id::text;
+    END IF;
+
+    -- Normal active report image: if under owner's folder, any active authenticated campus member can view
+    IF path_owner = attached_report.user_id::text THEN
+      RETURN true;
+    END IF;
+
+    RETURN caller_id::text = attached_report.user_id::text;
+  END IF;
+
+  -- Unattached image: only the path owner can access
+  IF object_name LIKE '%/sensitive/%' THEN
+    RETURN caller_id::text = path_owner;
+  END IF;
+
+  RETURN caller_id::text = path_owner;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.can_access_report_image(text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.can_access_report_image(text) TO authenticated;
+
 -- -----------------------------------------------------------------------------
--- Rate Limiting Enforcement Function
+-- Concurrency-Safe Rate Limiting Function (Advisory Locks)
 -- -----------------------------------------------------------------------------
--- Enforces:
---   * New reports: max 3/hour, max 10/day per user
---   * Report edits: max 20/day per report
---   * New claims: max 5/day per user
---   * Abuse reports: max 10/day per user
 CREATE OR REPLACE FUNCTION public.check_and_record_rate_limit(
   p_action TEXT,
   p_target_id UUID DEFAULT NULL
@@ -309,10 +403,22 @@ BEGIN
     RAISE EXCEPTION 'Authentication required.';
   END IF;
 
-  -- Admins bypass rate limits for administrative tasks
+  -- Validate supported action types
+  IF p_action NOT IN ('new_report', 'report_edit', 'new_claim', 'abuse_report', 'upload_image') THEN
+    RAISE EXCEPTION 'Unsupported rate limit action type: %', p_action;
+  END IF;
+
+  -- Active administrators bypass rate limits for operations
   IF public.is_current_user_admin() THEN
     RETURN true;
   END IF;
+
+  -- Acquire a transaction-level advisory lock to serialize quota checks for this user and action
+  -- Prevents concurrent race conditions (count-then-insert TOCTOU)
+  PERFORM pg_advisory_xact_lock(
+    hashtext('rate_limit:' || v_uid::text),
+    hashtext(p_action)
+  );
 
   IF p_action = 'new_report' THEN
     SELECT count(*) INTO v_count_hour
@@ -340,6 +446,14 @@ BEGIN
       IF v_count_day >= 20 THEN
         RAISE EXCEPTION 'Rate limit exceeded: This report has reached its daily edit quota (20 edits/day).';
       END IF;
+    ELSE
+      SELECT count(*) INTO v_count_day
+      FROM public.rate_limit_events
+      WHERE user_id = v_uid AND action_type = 'report_edit' AND created_at > now() - INTERVAL '24 hours';
+
+      IF v_count_day >= 20 THEN
+        RAISE EXCEPTION 'Rate limit exceeded: Daily edit limit of 20 edits reached.';
+      END IF;
     END IF;
 
   ELSIF p_action = 'new_claim' THEN
@@ -359,6 +473,23 @@ BEGIN
     IF v_count_day >= 10 THEN
       RAISE EXCEPTION 'Rate limit exceeded: Daily moderation report limit reached.';
     END IF;
+
+  ELSIF p_action = 'upload_image' THEN
+    SELECT count(*) INTO v_count_hour
+    FROM public.rate_limit_events
+    WHERE user_id = v_uid AND action_type = 'upload_image' AND created_at > now() - INTERVAL '1 hour';
+
+    IF v_count_hour >= 15 THEN
+      RAISE EXCEPTION 'Rate limit exceeded: Maximum 15 image uploads per hour.';
+    END IF;
+
+    SELECT count(*) INTO v_count_day
+    FROM public.rate_limit_events
+    WHERE user_id = v_uid AND action_type = 'upload_image' AND created_at > now() - INTERVAL '24 hours';
+
+    IF v_count_day >= 30 THEN
+      RAISE EXCEPTION 'Rate limit exceeded: Daily upload limit of 30 images reached.';
+    END IF;
   END IF;
 
   INSERT INTO public.rate_limit_events (user_id, action_type, target_id)
@@ -372,37 +503,346 @@ REVOKE ALL ON FUNCTION public.check_and_record_rate_limit(TEXT, UUID) FROM PUBLI
 GRANT EXECUTE ON FUNCTION public.check_and_record_rate_limit(TEXT, UUID) TO authenticated;
 
 -- -----------------------------------------------------------------------------
--- RLS Policies for New Tables
+-- Direct API Bypass Defenses: Report Mutation Guard Trigger
+-- -----------------------------------------------------------------------------
+-- Prevents any direct PostgREST INSERT or UPDATE on public.reports from bypassing
+-- ownership checks, quotas, active membership, title/desc length limits, or report status.
+CREATE OR REPLACE FUNCTION public.trg_enforce_report_mutation_rules()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_uid UUID;
+  v_word_count INT;
+BEGIN
+  v_uid := auth.uid();
+  IF v_uid IS NULL THEN
+    IF current_user IN ('authenticated', 'anon') THEN
+      RAISE EXCEPTION 'Authentication required.';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  IF NOT public.is_caller_active_member() THEN
+    RAISE EXCEPTION 'Active campus account required to create or modify reports.';
+  END IF;
+
+  IF TG_OP = 'INSERT' THEN
+    -- Enforce ownership: caller cannot forge user_id
+    IF NEW.user_id IS NULL OR NEW.user_id <> v_uid THEN
+      NEW.user_id := v_uid;
+    END IF;
+
+    -- Enforce initial status matches report type (never allow direct insertion of 'resolved')
+    IF NEW.status IS NULL OR NEW.status <> NEW.type THEN
+      NEW.status := NEW.type;
+    END IF;
+
+    -- Validation constraints
+    IF NEW.type NOT IN ('lost', 'found') THEN
+      RAISE EXCEPTION 'Report type must be lost or found.';
+    END IF;
+
+    IF length(trim(coalesce(NEW.title, ''))) < 5 OR length(trim(coalesce(NEW.title, ''))) > 70 THEN
+      RAISE EXCEPTION 'Title must be between 5 and 70 characters.';
+    END IF;
+
+    IF length(trim(coalesce(NEW.description, ''))) = 0 OR length(trim(coalesce(NEW.description, ''))) > 700 THEN
+      RAISE EXCEPTION 'Description must be between 1 and 700 characters.';
+    END IF;
+
+    SELECT array_length(regexp_split_to_array(trim(NEW.description), '\s+'), 1) INTO v_word_count;
+    IF v_word_count > 100 THEN
+      RAISE EXCEPTION 'Description exceeds maximum allowed word count of 100 words.';
+    END IF;
+
+    IF length(trim(coalesce(NEW.location, ''))) = 0 OR length(trim(coalesce(NEW.location, ''))) > 100 THEN
+      RAISE EXCEPTION 'Location must be between 1 and 100 characters.';
+    END IF;
+
+    IF NEW.custody_status IS NOT NULL AND NEW.custody_status NOT IN ('with_finder', 'handed_to_desk', 'only_observed', 'desk_custody_confirmed') THEN
+      RAISE EXCEPTION 'Invalid custody status.';
+    END IF;
+
+    -- Record concurrency-safe rate limit for new reports (if not already recorded in same transaction)
+    PERFORM public.check_and_record_rate_limit('new_report');
+
+    RETURN NEW;
+
+  ELSIF TG_OP = 'UPDATE' THEN
+    -- If called within verified handover or resolution procedure, allow status update
+    IF coalesce(current_setting('lostlink.in_handover_rpc', true), 'false') = 'true' THEN
+      NEW.updated_at := now();
+      RETURN NEW;
+    END IF;
+
+    -- Ownership check: non-admins and non-desk-operators can only modify their own reports
+    IF NOT (public.is_current_user_admin() OR public.is_current_user_desk_operator()) THEN
+      IF OLD.user_id <> v_uid THEN
+        RAISE EXCEPTION 'Permission denied: You can only edit your own reports.';
+      END IF;
+
+      -- Cannot transfer report ownership
+      NEW.user_id := OLD.user_id;
+
+      -- Cannot change report type
+      NEW.type := OLD.type;
+
+      -- Non-admin cannot directly mark report as resolved via PATCH (must use resolve_report RPC or desk handover)
+      IF NEW.status = 'resolved' AND OLD.status <> 'resolved' THEN
+        -- Allow if owner via resolve_report procedure, otherwise block arbitrary direct status change
+        IF coalesce(current_setting('lostlink.in_resolve_rpc', true), 'false') <> 'true' THEN
+          RAISE EXCEPTION 'Reports can only be resolved via authorized desk handover or verified resolution procedure.';
+        END IF;
+      END IF;
+
+      -- Validation if fields changed
+      IF NEW.title IS DISTINCT FROM OLD.title THEN
+        IF length(trim(coalesce(NEW.title, ''))) < 5 OR length(trim(coalesce(NEW.title, ''))) > 70 THEN
+          RAISE EXCEPTION 'Title must be between 5 and 70 characters.';
+        END IF;
+      END IF;
+
+      IF NEW.description IS DISTINCT FROM OLD.description THEN
+        IF length(trim(coalesce(NEW.description, ''))) = 0 OR length(trim(coalesce(NEW.description, ''))) > 700 THEN
+          RAISE EXCEPTION 'Description must be between 1 and 700 characters.';
+        END IF;
+        SELECT array_length(regexp_split_to_array(trim(NEW.description), '\s+'), 1) INTO v_word_count;
+        IF v_word_count > 100 THEN
+          RAISE EXCEPTION 'Description exceeds maximum allowed word count of 100 words.';
+        END IF;
+      END IF;
+
+      IF NEW.location IS DISTINCT FROM OLD.location THEN
+        IF length(trim(coalesce(NEW.location, ''))) = 0 OR length(trim(coalesce(NEW.location, ''))) > 100 THEN
+          RAISE EXCEPTION 'Location must be between 1 and 100 characters.';
+        END IF;
+      END IF;
+
+      -- Record concurrency-safe rate limit for report edit
+      PERFORM public.check_and_record_rate_limit('report_edit', OLD.id);
+    END IF;
+
+    NEW.updated_at := now();
+    RETURN NEW;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_enforce_report_mutation_rules ON public.reports;
+CREATE TRIGGER trg_enforce_report_mutation_rules
+  BEFORE INSERT OR UPDATE ON public.reports
+  FOR EACH ROW EXECUTE FUNCTION public.trg_enforce_report_mutation_rules();
+
+REVOKE ALL ON FUNCTION public.trg_enforce_report_mutation_rules() FROM PUBLIC;
+
+-- -----------------------------------------------------------------------------
+-- Direct API Bypass Defenses: Moderation Reports Guard Trigger
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.trg_enforce_moderation_report_rules()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_uid UUID;
+BEGIN
+  v_uid := auth.uid();
+  IF v_uid IS NULL THEN
+    IF current_user IN ('authenticated', 'anon') THEN
+      RAISE EXCEPTION 'Authentication required.';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  IF NOT public.is_caller_active_member() THEN
+    RAISE EXCEPTION 'Active campus account required to submit abuse reports.';
+  END IF;
+
+  IF TG_OP = 'INSERT' THEN
+    NEW.reporter_id := v_uid;
+    NEW.status := 'PENDING';
+
+    IF NEW.reason NOT IN ('spam', 'inappropriate', 'fraudulent', 'duplicate', 'other') THEN
+      RAISE EXCEPTION 'Invalid report reason.';
+    END IF;
+
+    IF NEW.details IS NOT NULL AND length(trim(NEW.details)) > 500 THEN
+      RAISE EXCEPTION 'Abuse report details cannot exceed 500 characters.';
+    END IF;
+
+    PERFORM public.check_and_record_rate_limit('abuse_report');
+    RETURN NEW;
+  ELSIF TG_OP = 'UPDATE' THEN
+    IF NOT public.is_current_user_admin() THEN
+      RAISE EXCEPTION 'Only administrators can review moderation reports.';
+    END IF;
+    NEW.updated_at := now();
+    RETURN NEW;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_enforce_moderation_report_rules ON public.moderation_reports;
+CREATE TRIGGER trg_enforce_moderation_report_rules
+  BEFORE INSERT OR UPDATE ON public.moderation_reports
+  FOR EACH ROW EXECUTE FUNCTION public.trg_enforce_moderation_report_rules();
+
+REVOKE ALL ON FUNCTION public.trg_enforce_moderation_report_rules() FROM PUBLIC;
+
+-- -----------------------------------------------------------------------------
+-- Direct API Bypass Defenses: Claim State Machine Guard Trigger
+-- -----------------------------------------------------------------------------
+-- Strictly controls claim state transitions:
+--   Claimant: can only withdraw (REQUESTED/UNDER_REVIEW -> WITHDRAWN)
+--   Desk/Admin: can review/approve (REQUESTED -> UNDER_REVIEW -> APPROVED_FOR_HANDOVER -> REJECTED)
+--   HANDED_OVER and RESOLVED are strictly reserved for complete_handover_resolution
+CREATE OR REPLACE FUNCTION public.trg_enforce_claim_state_rules()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_uid UUID;
+  v_is_desk BOOLEAN;
+BEGIN
+  v_uid := auth.uid();
+  IF v_uid IS NULL THEN
+    IF current_user IN ('authenticated', 'anon') THEN
+      RAISE EXCEPTION 'Authentication required.';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  v_is_desk := public.is_current_user_desk_operator();
+
+  IF TG_OP = 'INSERT' THEN
+    -- Direct inserts must originate from authenticated active member
+    IF NOT public.is_caller_active_member() THEN
+      RAISE EXCEPTION 'Active campus account required to submit claims.';
+    END IF;
+
+    NEW.claimant_id := v_uid;
+    -- Initial status can only be REQUESTED or DISPUTED (never APPROVED or RESOLVED)
+    IF NEW.status NOT IN ('REQUESTED', 'DISPUTED') THEN
+      NEW.status := 'REQUESTED';
+    END IF;
+
+    RETURN NEW;
+
+  ELSIF TG_OP = 'UPDATE' THEN
+    -- Check terminal states: once resolved, rejected, or withdrawn, claim cannot be changed
+    IF OLD.status IN ('RESOLVED', 'REJECTED', 'WITHDRAWN') THEN
+      RAISE EXCEPTION 'Cannot modify claim: Claim is in terminal state (%).', OLD.status;
+    END IF;
+
+    -- If caller is claimant (and not desk operator/admin)
+    IF NOT v_is_desk THEN
+      IF OLD.claimant_id <> v_uid THEN
+        RAISE EXCEPTION 'Permission denied: You can only modify your own claims.';
+      END IF;
+
+      -- Claimant can ONLY transition to WITHDRAWN
+      IF NEW.status <> 'WITHDRAWN' THEN
+        RAISE EXCEPTION 'Claimants can only withdraw their claims; they cannot alter status or review fields.';
+      END IF;
+
+      IF OLD.status NOT IN ('REQUESTED', 'UNDER_REVIEW') THEN
+        RAISE EXCEPTION 'Claim cannot be withdrawn in its current status (%).', OLD.status;
+      END IF;
+
+      -- Prevent tampering with evidence or review fields
+      NEW.claim_evidence := OLD.claim_evidence;
+      NEW.found_report_id := OLD.found_report_id;
+      NEW.linked_lost_report_id := OLD.linked_lost_report_id;
+      NEW.review_notes := OLD.review_notes;
+      NEW.reviewed_by := OLD.reviewed_by;
+      NEW.reviewed_at := OLD.reviewed_at;
+    ELSE
+      -- Desk operator / Administrator transitions
+      -- Prevent transitioning directly to RESOLVED without complete_handover_resolution
+      IF NEW.status = 'RESOLVED' AND coalesce(current_setting('lostlink.in_handover_rpc', true), 'false') <> 'true' THEN
+        RAISE EXCEPTION 'Claims can only be resolved through complete_handover_resolution physical handover procedure.';
+      END IF;
+    END IF;
+
+    NEW.updated_at := now();
+    RETURN NEW;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_enforce_claim_state_rules ON public.claims;
+CREATE TRIGGER trg_enforce_claim_state_rules
+  BEFORE INSERT OR UPDATE ON public.claims
+  FOR EACH ROW EXECUTE FUNCTION public.trg_enforce_claim_state_rules();
+
+REVOKE ALL ON FUNCTION public.trg_enforce_claim_state_rules() FROM PUBLIC;
+
+-- -----------------------------------------------------------------------------
+-- Revoke Direct Mutation Privileges from Authenticated Role
+-- -----------------------------------------------------------------------------
+-- Force sensitive operations through secure RPCs and prevent direct PostgREST tampering:
+REVOKE INSERT, UPDATE, DELETE ON public.claims FROM authenticated;
+REVOKE INSERT, UPDATE, DELETE ON public.handover_records FROM authenticated;
+REVOKE INSERT, UPDATE, DELETE ON public.campus_memberships FROM authenticated;
+REVOKE INSERT, UPDATE, DELETE ON public.staff_allowlist FROM authenticated;
+REVOKE UPDATE, DELETE ON public.moderation_reports FROM authenticated;
+REVOKE INSERT, UPDATE, DELETE ON public.rate_limit_events FROM authenticated;
+
+-- Read privileges granted (filtered strictly by RLS policies below)
+GRANT SELECT ON public.campus_memberships TO authenticated;
+GRANT SELECT ON public.staff_allowlist TO authenticated;
+GRANT SELECT ON public.campus_desks TO authenticated;
+GRANT SELECT ON public.claims TO authenticated;
+GRANT SELECT ON public.handover_records TO authenticated;
+GRANT SELECT ON public.report_private_details TO authenticated;
+GRANT SELECT ON public.rate_limit_events TO authenticated;
+GRANT SELECT ON public.audit_logs TO authenticated;
+GRANT SELECT, INSERT ON public.moderation_reports TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.reports TO authenticated;
+
+-- -----------------------------------------------------------------------------
+-- RLS Policies (Universal Active Membership Enforcement)
 -- -----------------------------------------------------------------------------
 
--- campus_memberships:
--- Active users can view their own membership; desk operators and admins can view all.
+-- 1. campus_memberships:
 DROP POLICY IF EXISTS "Users can view own membership" ON public.campus_memberships;
 CREATE POLICY "Users can view own membership"
   ON public.campus_memberships FOR SELECT TO authenticated
-  USING (auth.uid() = user_id OR public.is_current_user_desk_operator());
+  USING (
+    -- Only active members can view their membership; desk operators and admins can view all
+    (auth.uid() = user_id AND status = 'ACTIVE') OR public.is_current_user_desk_operator()
+  );
 
--- Only administrators can modify memberships
 DROP POLICY IF EXISTS "Admins manage memberships" ON public.campus_memberships;
 CREATE POLICY "Admins manage memberships"
   ON public.campus_memberships FOR ALL TO authenticated
   USING (public.is_current_user_admin())
   WITH CHECK (public.is_current_user_admin());
 
--- staff_allowlist:
--- Only administrators can read or manage the staff allowlist
+-- 2. staff_allowlist:
 DROP POLICY IF EXISTS "Admins manage staff allowlist" ON public.staff_allowlist;
 CREATE POLICY "Admins manage staff allowlist"
   ON public.staff_allowlist FOR ALL TO authenticated
   USING (public.is_current_user_admin())
   WITH CHECK (public.is_current_user_admin());
 
--- campus_desks:
--- Campus desks are viewable by all authenticated users; managed by admins
+-- 3. campus_desks:
 DROP POLICY IF EXISTS "Campus desks are viewable by authenticated users" ON public.campus_desks;
 CREATE POLICY "Campus desks are viewable by authenticated users"
   ON public.campus_desks FOR SELECT TO authenticated
-  USING (true);
+  USING (public.is_caller_active_member());
 
 DROP POLICY IF EXISTS "Admins manage campus desks" ON public.campus_desks;
 CREATE POLICY "Admins manage campus desks"
@@ -410,86 +850,95 @@ CREATE POLICY "Admins manage campus desks"
   USING (public.is_current_user_admin())
   WITH CHECK (public.is_current_user_admin());
 
--- report_private_details:
--- Visible ONLY to report owner or authorized desk operators / admins
+-- 4. report_private_details:
 DROP POLICY IF EXISTS "Owner or desk can view private report details" ON public.report_private_details;
 CREATE POLICY "Owner or desk can view private report details"
   ON public.report_private_details FOR SELECT TO authenticated
-  USING (auth.uid() = owner_id OR public.is_current_user_desk_operator());
+  USING (
+    public.is_caller_active_member() AND (auth.uid() = owner_id OR public.is_current_user_desk_operator())
+  );
 
 DROP POLICY IF EXISTS "Owners can manage private details" ON public.report_private_details;
 CREATE POLICY "Owners can manage private details"
   ON public.report_private_details FOR ALL TO authenticated
-  USING (auth.uid() = owner_id)
-  WITH CHECK (auth.uid() = owner_id);
+  USING (public.is_caller_active_member() AND auth.uid() = owner_id)
+  WITH CHECK (public.is_caller_active_member() AND auth.uid() = owner_id);
 
--- claims:
--- Claimants can view own claims; desk operators & admins can view all claims
+-- 5. claims:
 DROP POLICY IF EXISTS "Claimants can view own claims" ON public.claims;
 CREATE POLICY "Claimants can view own claims"
   ON public.claims FOR SELECT TO authenticated
-  USING (auth.uid() = claimant_id OR public.is_current_user_desk_operator());
+  USING (
+    public.is_caller_active_member() AND (auth.uid() = claimant_id OR public.is_current_user_desk_operator())
+  );
 
-DROP POLICY IF EXISTS "Active members can create claims" ON public.claims;
-CREATE POLICY "Active members can create claims"
-  ON public.claims FOR INSERT TO authenticated
-  WITH CHECK (auth.uid() = claimant_id AND public.is_caller_active_member());
-
-DROP POLICY IF EXISTS "Claimants can withdraw own claims" ON public.claims;
-CREATE POLICY "Claimants can withdraw own claims"
-  ON public.claims FOR UPDATE TO authenticated
-  USING (auth.uid() = claimant_id OR public.is_current_user_desk_operator())
-  WITH CHECK (auth.uid() = claimant_id OR public.is_current_user_desk_operator());
-
--- handover_records:
--- Claimant can view their own handover record; desk operators/admins can view & manage
+-- 6. handover_records:
 DROP POLICY IF EXISTS "Claimants can view own handover records" ON public.handover_records;
 CREATE POLICY "Claimants can view own handover records"
   ON public.handover_records FOR SELECT TO authenticated
-  USING (auth.uid() = claimant_id OR public.is_current_user_desk_operator());
+  USING (
+    public.is_caller_active_member() AND (auth.uid() = claimant_id OR public.is_current_user_desk_operator())
+  );
 
-DROP POLICY IF EXISTS "Desk operators manage handover records" ON public.handover_records;
-CREATE POLICY "Desk operators manage handover records"
-  ON public.handover_records FOR ALL TO authenticated
-  USING (public.is_current_user_desk_operator())
-  WITH CHECK (public.is_current_user_desk_operator());
-
--- audit_logs:
--- Only administrators can view audit logs
+-- 7. audit_logs:
 DROP POLICY IF EXISTS "Admins can view audit logs" ON public.audit_logs;
 CREATE POLICY "Admins can view audit logs"
   ON public.audit_logs FOR SELECT TO authenticated
   USING (public.is_current_user_admin());
 
--- moderation_reports:
--- Reporter can view own; admins can view & manage
+-- 8. moderation_reports:
 DROP POLICY IF EXISTS "Reporters view own abuse reports" ON public.moderation_reports;
 CREATE POLICY "Reporters view own abuse reports"
   ON public.moderation_reports FOR SELECT TO authenticated
-  USING (auth.uid() = reporter_id OR public.is_current_user_admin());
+  USING (
+    public.is_caller_active_member() AND (auth.uid() = reporter_id OR public.is_current_user_admin())
+  );
 
 DROP POLICY IF EXISTS "Active users can insert abuse reports" ON public.moderation_reports;
 CREATE POLICY "Active users can insert abuse reports"
   ON public.moderation_reports FOR INSERT TO authenticated
   WITH CHECK (auth.uid() = reporter_id AND public.is_caller_active_member());
 
-DROP POLICY IF EXISTS "Admins manage abuse reports" ON public.moderation_reports;
-CREATE POLICY "Admins manage abuse reports"
-  ON public.moderation_reports FOR UPDATE TO authenticated
-  USING (public.is_current_user_admin())
-  WITH CHECK (public.is_current_user_admin());
-
--- rate_limit_events:
--- Managed strictly by security definer function; users can only view their own
+-- 9. rate_limit_events:
 DROP POLICY IF EXISTS "Users can view own rate limit events" ON public.rate_limit_events;
 CREATE POLICY "Users can view own rate limit events"
   ON public.rate_limit_events FOR SELECT TO authenticated
   USING (auth.uid() = user_id);
 
--- -----------------------------------------------------------------------------
--- 11. Restrictive Membership Guard on Existing Tables
--- -----------------------------------------------------------------------------
--- Revoked or suspended members are blocked from creating or modifying reports/claims
+-- Ensure baseline permissive report write policies exist if not already defined
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'reports' AND policyname = 'Users can create their own reports'
+  ) THEN
+    CREATE POLICY "Users can create their own reports"
+      ON public.reports
+      FOR INSERT
+      TO authenticated
+      WITH CHECK (auth.uid() = user_id);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'reports' AND policyname = 'Users can update their own reports'
+  ) THEN
+    CREATE POLICY "Users can update their own reports"
+      ON public.reports
+      FOR UPDATE
+      TO authenticated
+      USING (auth.uid() = user_id)
+      WITH CHECK (auth.uid() = user_id);
+  END IF;
+END $$;
+
+-- 10. Universal Restrictive Policies on reports:
+DROP POLICY IF EXISTS "Active membership required for report reads" ON public.reports;
+CREATE POLICY "Active membership required for report reads"
+  ON public.reports AS RESTRICTIVE
+  FOR SELECT TO authenticated
+  USING (public.is_caller_active_member());
+
 DROP POLICY IF EXISTS "Active membership required for report writes" ON public.reports;
 CREATE POLICY "Active membership required for report writes"
   ON public.reports AS RESTRICTIVE
@@ -503,26 +952,9 @@ CREATE POLICY "Active membership required for report updates"
   USING (public.is_caller_active_member())
   WITH CHECK (public.is_caller_active_member());
 
--- Table privileges for authenticated users (enforced via RLS above)
-GRANT SELECT ON public.campus_memberships TO authenticated;
-GRANT SELECT ON public.staff_allowlist TO authenticated;
-GRANT SELECT ON public.campus_desks TO authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.report_private_details TO authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.claims TO authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.handover_records TO authenticated;
-GRANT SELECT, INSERT ON public.rate_limit_events TO authenticated;
-GRANT SELECT ON public.audit_logs TO authenticated;
-GRANT SELECT, INSERT, UPDATE ON public.moderation_reports TO authenticated;
-
 -- -----------------------------------------------------------------------------
--- 12. Updated Signup Enforcement Trigger (Student PRN, Staff Allowlist, Admin)
+-- Signup Enforcement Trigger: Student PRN, Staff Allowlist, Admin Protection
 -- -----------------------------------------------------------------------------
--- Locked Decision:
--- 1. Initial administrator: vachannoubade@gmail.com MUST have raw_app_meta_data.role = 'admin'
---    It cannot be registered as an admin through public signup.
--- 2. Faculty / Staff: must exist in public.staff_allowlist with is_active = true.
--- 3. Students: numeric PRN ^[0-9]{6,16}@sguk\.ac\.in$
--- 4. Existing accounts are preserved (BEFORE INSERT only).
 CREATE OR REPLACE FUNCTION public.enforce_college_email_domain()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -552,7 +984,7 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  -- 3. Staff & Faculty Allowlist check
+  -- 3. Staff & Faculty Allowlist check (never infer staff from user_metadata)
   SELECT role INTO v_staff_role
   FROM public.staff_allowlist
   WHERE email = normalized_email AND is_active = true;
@@ -590,7 +1022,7 @@ CREATE TRIGGER enforce_college_email_domain
 REVOKE EXECUTE ON FUNCTION public.enforce_college_email_domain() FROM PUBLIC;
 
 -- -----------------------------------------------------------------------------
--- 13. Synchronize Campus Memberships on User Signup
+-- Synchronize Campus Memberships on User Signup (Staff Check via Allowlist Only)
 -- -----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.handle_user_membership_sync()
 RETURNS trigger
@@ -601,16 +1033,29 @@ AS $$
 DECLARE
   v_role text;
   v_status text;
+  v_staff_role text;
+  v_normalized_email text;
 BEGIN
+  v_normalized_email := lower(btrim(coalesce(NEW.email, '')));
+
+  -- 1. Administrator: ONLY trusted raw_app_meta_data
   IF NEW.raw_app_meta_data IS NOT NULL AND NEW.raw_app_meta_data ->> 'role' = 'admin' THEN
     v_role := 'admin';
     v_status := 'ACTIVE';
-  ELSIF NEW.raw_user_meta_data IS NOT NULL AND NEW.raw_user_meta_data ->> 'is_staff' = 'true' THEN
-    v_role := coalesce(NEW.raw_user_meta_data ->> 'role', 'staff');
-    v_status := 'ACTIVE';
   ELSE
-    v_role := 'student';
-    v_status := 'ACTIVE';
+    -- 2. Staff: check public.staff_allowlist (NEVER user_metadata)
+    SELECT role INTO v_staff_role
+    FROM public.staff_allowlist
+    WHERE email = v_normalized_email AND is_active = true;
+
+    IF FOUND THEN
+      v_role := coalesce(v_staff_role, 'staff');
+      v_status := 'ACTIVE';
+    ELSE
+      -- 3. Student (enforce_college_email_domain already verified numeric PRN format)
+      v_role := 'student';
+      v_status := 'ACTIVE';
+    END IF;
   END IF;
 
   INSERT INTO public.campus_memberships (user_id, membership_type, status, approved_at)
@@ -630,13 +1075,16 @@ CREATE TRIGGER on_user_membership_sync
 
 REVOKE EXECUTE ON FUNCTION public.handle_user_membership_sync() FROM PUBLIC;
 
--- Backfill memberships for any existing auth.users without one
+-- Backfill memberships for any existing auth.users without one (strictly ignoring user_metadata)
 INSERT INTO public.campus_memberships (user_id, membership_type, status, approved_at)
 SELECT
   u.id,
   CASE
     WHEN u.raw_app_meta_data ->> 'role' = 'admin' THEN 'admin'
-    WHEN u.raw_user_meta_data ->> 'is_staff' = 'true' THEN 'staff'
+    WHEN EXISTS (
+      SELECT 1 FROM public.staff_allowlist sa
+      WHERE sa.email = lower(btrim(coalesce(u.email, ''))) AND sa.is_active = true
+    ) THEN 'staff'
     ELSE 'student'
   END,
   'ACTIVE',
@@ -645,10 +1093,10 @@ FROM auth.users u
 ON CONFLICT (user_id) DO NOTHING;
 
 -- -----------------------------------------------------------------------------
--- 14. Server-Side Atomic Procedures: Report Creation & Claim Submission
+-- Server-Side Procedures: Report Creation, Claims, Review & Handover
 -- -----------------------------------------------------------------------------
 
--- Procedure: Secure Report Creation with server validation and rate limiting
+-- Procedure: Secure Report Creation
 CREATE OR REPLACE FUNCTION public.create_report_secure(
   p_type TEXT,
   p_title TEXT,
@@ -672,48 +1120,21 @@ AS $$
 DECLARE
   v_uid UUID;
   v_report_id UUID;
-  v_word_count INT;
 BEGIN
   v_uid := auth.uid();
   IF v_uid IS NULL THEN
     RAISE EXCEPTION 'Authentication required.';
   END IF;
 
-  -- 1. Check membership status
   IF NOT public.is_caller_active_member() THEN
     RAISE EXCEPTION 'Your campus account is not active. Please contact administrator.';
-  END IF;
-
-  -- 2. Server validation limits
-  IF p_type NOT IN ('lost', 'found') THEN
-    RAISE EXCEPTION 'Report type must be lost or found.';
-  END IF;
-
-  IF length(trim(coalesce(p_title, ''))) < 5 OR length(trim(coalesce(p_title, ''))) > 70 THEN
-    RAISE EXCEPTION 'Title must be between 5 and 70 characters.';
-  END IF;
-
-  IF length(trim(coalesce(p_description, ''))) = 0 OR length(trim(coalesce(p_description, ''))) > 700 THEN
-    RAISE EXCEPTION 'Description must be between 1 and 700 characters.';
-  END IF;
-
-  SELECT array_length(regexp_split_to_array(trim(p_description), '\s+'), 1) INTO v_word_count;
-  IF v_word_count > 100 THEN
-    RAISE EXCEPTION 'Description exceeds maximum allowed word count of 100 words.';
-  END IF;
-
-  IF length(trim(coalesce(p_location, ''))) = 0 OR length(trim(coalesce(p_location, ''))) > 100 THEN
-    RAISE EXCEPTION 'Location must be between 1 and 100 characters.';
   END IF;
 
   IF p_private_evidence IS NOT NULL AND length(trim(p_private_evidence)) > 300 THEN
     RAISE EXCEPTION 'Private evidence detail cannot exceed 300 characters.';
   END IF;
 
-  -- 3. Rate limiting check (3/hr, 10/day)
-  PERFORM public.check_and_record_rate_limit('new_report');
-
-  -- 4. Insert report
+  -- Insert report (trg_enforce_report_mutation_rules validates title, desc, word count, location, quotas)
   INSERT INTO public.reports (
     user_id, type, title, category, description, location, date,
     brand_model, color, distinguishing_features, campus_zone,
@@ -727,13 +1148,13 @@ BEGIN
   )
   RETURNING id INTO v_report_id;
 
-  -- 5. Insert private identifying evidence if provided (strictly restricted)
+  -- Insert private identifying evidence if provided (strictly restricted)
   IF p_private_evidence IS NOT NULL AND length(trim(p_private_evidence)) >= 3 THEN
     INSERT INTO public.report_private_details (report_id, owner_id, private_detail)
     VALUES (v_report_id, v_uid, trim(p_private_evidence));
   END IF;
 
-  -- 6. Log audit event
+  -- Log audit event
   INSERT INTO public.audit_logs (actor_id, action, entity_type, entity_id, details)
   VALUES (v_uid, 'REPORT_CREATED', 'report', v_report_id, jsonb_build_object('type', p_type, 'title', p_title));
 
@@ -744,7 +1165,57 @@ $$;
 REVOKE ALL ON FUNCTION public.create_report_secure FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.create_report_secure TO authenticated;
 
--- Procedure: Secure Ownership Claim Submission ("This might be mine")
+-- Procedure: Authorized Report Self-Resolution (Owner)
+CREATE OR REPLACE FUNCTION public.resolve_report(report_id UUID)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_uid UUID;
+  v_report public.reports%ROWTYPE;
+BEGIN
+  v_uid := auth.uid();
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'Authentication required.';
+  END IF;
+
+  IF NOT public.is_caller_active_member() THEN
+    RAISE EXCEPTION 'Active campus account required.';
+  END IF;
+
+  SELECT * INTO v_report FROM public.reports WHERE id = report_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Report not found.';
+  END IF;
+
+  IF v_report.user_id <> v_uid AND NOT public.is_current_user_admin() THEN
+    RAISE EXCEPTION 'Permission denied: You can only resolve your own reports.';
+  END IF;
+
+  IF v_report.status = 'resolved' THEN
+    RETURN true;
+  END IF;
+
+  -- Set session flag so report mutation trigger allows resolution from this RPC
+  PERFORM set_config('lostlink.in_resolve_rpc', 'true', true);
+
+  UPDATE public.reports
+  SET status = 'resolved', updated_at = now()
+  WHERE id = report_id;
+
+  INSERT INTO public.audit_logs (actor_id, action, entity_type, entity_id, details)
+  VALUES (v_uid, 'REPORT_RESOLVED_BY_OWNER', 'report', report_id, jsonb_build_object('title', v_report.title));
+
+  RETURN true;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.resolve_report(UUID) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.resolve_report(UUID) TO authenticated;
+
+-- Procedure: Secure Claim Submission
 CREATE OR REPLACE FUNCTION public.submit_claim_secure(
   p_found_report_id UUID,
   p_claim_evidence TEXT,
@@ -776,6 +1247,10 @@ BEGIN
     RAISE EXCEPTION 'Target report not found.';
   END IF;
 
+  IF v_found_report.type <> 'found' THEN
+    RAISE EXCEPTION 'Claims can only be filed against found item reports.';
+  END IF;
+
   IF v_found_report.status = 'resolved' THEN
     RAISE EXCEPTION 'This report is already resolved and no longer accepting claims.';
   END IF;
@@ -789,7 +1264,7 @@ BEGIN
     RAISE EXCEPTION 'Claim evidence must be between 10 and 500 characters.';
   END IF;
 
-  -- Rate limit check (max 5 claims per day)
+  -- Concurrency-safe rate limit check (max 5 claims per day)
   PERFORM public.check_and_record_rate_limit('new_claim', p_found_report_id);
 
   -- Check existing active claim by caller for this found item
@@ -847,12 +1322,132 @@ $$;
 REVOKE ALL ON FUNCTION public.submit_claim_secure FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.submit_claim_secure TO authenticated;
 
--- -----------------------------------------------------------------------------
--- 15. Server-Side Atomic Procedure: Complete Handover & Resolution
--- -----------------------------------------------------------------------------
--- Only authorized desk operator or admin can execute this.
--- Records physical confirmation, verifies claimant ID, marks handover COMPLETED,
--- resolves reports, rejects competing claims, and logs audit event.
+-- Procedure: Secure Claim Withdrawal (Claimant)
+CREATE OR REPLACE FUNCTION public.withdraw_claim_secure(p_claim_id UUID)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_uid UUID;
+  v_claim public.claims%ROWTYPE;
+BEGIN
+  v_uid := auth.uid();
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'Authentication required.';
+  END IF;
+
+  SELECT * INTO v_claim FROM public.claims WHERE id = p_claim_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Claim record not found.';
+  END IF;
+
+  IF v_claim.claimant_id <> v_uid AND NOT public.is_current_user_admin() THEN
+    RAISE EXCEPTION 'Permission denied: You can only withdraw your own claims.';
+  END IF;
+
+  IF v_claim.status NOT IN ('REQUESTED', 'UNDER_REVIEW', 'DISPUTED') THEN
+    RAISE EXCEPTION 'Cannot withdraw claim in its current status (%).', v_claim.status;
+  END IF;
+
+  UPDATE public.claims
+  SET status = 'WITHDRAWN', updated_at = now()
+  WHERE id = p_claim_id;
+
+  INSERT INTO public.audit_logs (actor_id, action, entity_type, entity_id, details)
+  VALUES (v_uid, 'CLAIM_WITHDRAWN', 'claim', p_claim_id, jsonb_build_object('found_report_id', v_claim.found_report_id));
+
+  RETURN true;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.withdraw_claim_secure(UUID) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.withdraw_claim_secure(UUID) TO authenticated;
+
+-- Procedure: Review & Update Claim Status (Desk Operator / Administrator)
+CREATE OR REPLACE FUNCTION public.review_claim_status(
+  p_claim_id UUID,
+  p_new_status TEXT,
+  p_review_notes TEXT DEFAULT NULL
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_caller_id UUID;
+  v_claim public.claims%ROWTYPE;
+BEGIN
+  v_caller_id := auth.uid();
+  IF v_caller_id IS NULL THEN
+    RAISE EXCEPTION 'Authentication required.';
+  END IF;
+
+  IF NOT public.is_current_user_desk_operator() THEN
+    RAISE EXCEPTION 'Permission denied: Only authorized desk operators or administrators can review claims.';
+  END IF;
+
+  IF NOT public.is_caller_active_member() THEN
+    RAISE EXCEPTION 'Operator membership is inactive or revoked.';
+  END IF;
+
+  IF p_new_status NOT IN ('UNDER_REVIEW', 'APPROVED_FOR_HANDOVER', 'REJECTED', 'DISPUTED') THEN
+    RAISE EXCEPTION 'Invalid review status transition. Status RESOLVED is reserved for complete_handover_resolution.';
+  END IF;
+
+  SELECT * INTO v_claim FROM public.claims WHERE id = p_claim_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Claim record not found.';
+  END IF;
+
+  IF v_claim.status IN ('RESOLVED', 'REJECTED', 'WITHDRAWN') THEN
+    RAISE EXCEPTION 'Cannot update claim: Claim is in terminal state (%).', v_claim.status;
+  END IF;
+
+  -- If approving this claim for handover, reject or dispute competing claims
+  IF p_new_status = 'APPROVED_FOR_HANDOVER' THEN
+    UPDATE public.claims
+    SET status = 'REJECTED',
+        review_notes = 'Another claimant was verified as the genuine owner.',
+        reviewed_by = v_caller_id,
+        reviewed_at = now(),
+        updated_at = now()
+    WHERE found_report_id = v_claim.found_report_id
+      AND id <> p_claim_id
+      AND status NOT IN ('RESOLVED', 'REJECTED');
+  END IF;
+
+  UPDATE public.claims
+  SET status = p_new_status,
+      review_notes = coalesce(p_review_notes, review_notes),
+      reviewed_by = v_caller_id,
+      reviewed_at = now(),
+      updated_at = now()
+  WHERE id = p_claim_id;
+
+  INSERT INTO public.audit_logs (actor_id, action, entity_type, entity_id, details)
+  VALUES (
+    v_caller_id,
+    'CLAIM_REVIEW_UPDATED',
+    'claim',
+    p_claim_id,
+    jsonb_build_object(
+      'old_status', v_claim.status,
+      'new_status', p_new_status,
+      'notes', p_review_notes
+    )
+  );
+
+  RETURN jsonb_build_object('success', true, 'claim_id', p_claim_id, 'status', p_new_status);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.review_claim_status(UUID, TEXT, TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.review_claim_status(UUID, TEXT, TEXT) TO authenticated;
+
+-- Procedure: Complete Handover & Resolution (Physical Custody Transfer)
 CREATE OR REPLACE FUNCTION public.complete_handover_resolution(
   p_claim_id UUID,
   p_desk_location TEXT,
@@ -868,6 +1463,7 @@ DECLARE
   v_caller_id UUID;
   v_claim public.claims;
   v_found_report public.reports;
+  v_lost_report public.reports;
   v_handover_id UUID;
 BEGIN
   v_caller_id := auth.uid();
@@ -879,25 +1475,85 @@ BEGIN
     RAISE EXCEPTION 'Permission denied: Only authorized desk operators or administrators can authorize physical handovers.';
   END IF;
 
+  IF NOT public.is_caller_active_member() THEN
+    RAISE EXCEPTION 'Operator membership is inactive or revoked.';
+  END IF;
+
   IF NOT p_id_verified THEN
     RAISE EXCEPTION 'Student identity and PRN must be physically verified prior to authorizing item handover.';
   END IF;
 
+  IF length(trim(coalesce(p_condition_notes, ''))) < 3 THEN
+    RAISE EXCEPTION 'Item condition notes are required (minimum 3 characters).';
+  END IF;
+
+  -- 1. Fetch and Lock Claim
   SELECT * INTO v_claim FROM public.claims WHERE id = p_claim_id FOR UPDATE;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Claim record not found.';
   END IF;
 
-  IF v_claim.status IN ('HANDED_OVER', 'RESOLVED') THEN
+  -- Strict status eligibility checks:
+  IF v_claim.status = 'REQUESTED' THEN
+    RAISE EXCEPTION 'Claim has not been reviewed yet. It must be approved for handover first.';
+  ELSIF v_claim.status = 'UNDER_REVIEW' THEN
+    RAISE EXCEPTION 'Claim is still under review and has not yet been approved for handover.';
+  ELSIF v_claim.status = 'DISPUTED' THEN
+    RAISE EXCEPTION 'Cannot complete handover: Claim is disputed. Resolve competing claims first.';
+  ELSIF v_claim.status IN ('REJECTED', 'WITHDRAWN') THEN
+    RAISE EXCEPTION 'Cannot complete handover for rejected or withdrawn claim.';
+  ELSIF v_claim.status IN ('HANDED_OVER', 'RESOLVED') THEN
     RAISE EXCEPTION 'Handover has already been completed for this claim.';
+  ELSIF v_claim.status <> 'APPROVED_FOR_HANDOVER' THEN
+    RAISE EXCEPTION 'Only claims explicitly in APPROVED_FOR_HANDOVER status can be handed over.';
   END IF;
 
+  -- 2. Fetch and Lock Found Report
   SELECT * INTO v_found_report FROM public.reports WHERE id = v_claim.found_report_id FOR UPDATE;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Associated found report not found.';
   END IF;
 
-  -- 1. Create Handover Record
+  IF v_found_report.type <> 'found' THEN
+    RAISE EXCEPTION 'Associated report is not a found item report.';
+  END IF;
+
+  IF v_found_report.status = 'resolved' THEN
+    RAISE EXCEPTION 'Found item report is already marked resolved.';
+  END IF;
+
+  -- Prevent duplicate handovers on the same found item
+  IF EXISTS (
+    SELECT 1 FROM public.handover_records
+    WHERE found_report_id = v_found_report.id AND handover_status = 'COMPLETED'
+  ) THEN
+    RAISE EXCEPTION 'Duplicate handover blocked: A completed handover record already exists for this found item.';
+  END IF;
+
+  -- 3. Validate Linked Lost Report (if attached)
+  IF v_claim.linked_lost_report_id IS NOT NULL THEN
+    SELECT * INTO v_lost_report FROM public.reports WHERE id = v_claim.linked_lost_report_id FOR UPDATE;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'Linked lost report not found.';
+    END IF;
+
+    IF v_lost_report.type <> 'lost' THEN
+      RAISE EXCEPTION 'Linked report must be of type lost.';
+    END IF;
+
+    IF v_lost_report.user_id <> v_claim.claimant_id THEN
+      RAISE EXCEPTION 'Linked lost report does not belong to the verified claimant.';
+    END IF;
+
+    IF v_lost_report.status = 'resolved' THEN
+      RAISE EXCEPTION 'Linked lost report is already resolved.';
+    END IF;
+  END IF;
+
+  -- Set session flag so claim/report mutation triggers allow status transition to RESOLVED
+  PERFORM set_config('lostlink.in_handover_rpc', 'true', true);
+
+  -- 4. Create Immutable Handover Record
   INSERT INTO public.handover_records (
     claim_id, found_report_id, claimant_id, desk_operator_id,
     desk_location, handover_status, item_condition_notes,
@@ -911,23 +1567,23 @@ BEGIN
   )
   RETURNING id INTO v_handover_id;
 
-  -- 2. Update Claim status
+  -- 5. Transition Claim status to RESOLVED
   UPDATE public.claims
   SET status = 'RESOLVED',
       reviewed_by = v_caller_id,
       reviewed_at = now(),
-      review_notes = coalesce(review_notes || E'\n', '') || 'Handover completed at desk by operator.',
+      review_notes = coalesce(review_notes || E'\n', '') || 'Physical handover confirmed by operator at desk.',
       updated_at = now()
   WHERE id = p_claim_id;
 
-  -- 3. Resolve Found Report
+  -- 6. Resolve Found Report
   UPDATE public.reports
   SET status = 'resolved',
       custody_status = 'desk_custody_confirmed',
       updated_at = now()
   WHERE id = v_claim.found_report_id;
 
-  -- 4. If claimant linked their lost report, resolve that too
+  -- 7. If claimant linked their lost report, resolve that too
   IF v_claim.linked_lost_report_id IS NOT NULL THEN
     UPDATE public.reports
     SET status = 'resolved',
@@ -935,16 +1591,18 @@ BEGIN
     WHERE id = v_claim.linked_lost_report_id;
   END IF;
 
-  -- 5. Reject any other competing claims for this found item
+  -- 8. Reject any remaining competing claims
   UPDATE public.claims
   SET status = 'REJECTED',
       review_notes = 'Item resolved and returned to verified claimant via campus helpdesk.',
+      reviewed_by = v_caller_id,
+      reviewed_at = now(),
       updated_at = now()
   WHERE found_report_id = v_claim.found_report_id
     AND id <> p_claim_id
     AND status NOT IN ('RESOLVED', 'REJECTED');
 
-  -- 6. Notify claimant
+  -- 9. Notify claimant
   INSERT INTO public.notifications (user_id, title, message, link, read)
   VALUES (
     v_claim.claimant_id,
@@ -954,7 +1612,7 @@ BEGIN
     false
   );
 
-  -- 7. Audit log
+  -- 10. Audit log
   INSERT INTO public.audit_logs (actor_id, action, entity_type, entity_id, details)
   VALUES (
     v_caller_id,

@@ -98,3 +98,4 @@ test('Claim validation: Requires 10-500 chars of private identifying evidence', 
   // Too long (> 500 chars)
   assert.equal(validateClaimInput('a'.repeat(501)).valid, false);
 });
+

@@ -47,8 +47,8 @@ AS $$
   SELECT nullif(auth.jwt() ->> 'sub', '')::uuid;
 $$;
 
-GRANT EXECUTE ON FUNCTION auth.jwt() TO authenticated;
-GRANT EXECUTE ON FUNCTION auth.uid() TO authenticated;
+GRANT EXECUTE ON FUNCTION auth.jwt() TO authenticated, anon;
+GRANT EXECUTE ON FUNCTION auth.uid() TO authenticated, anon;
 
 CREATE TABLE auth.users (
   id uuid PRIMARY KEY,
@@ -141,6 +141,12 @@ ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Profiles are readable by authenticated users"
   ON public.profiles FOR SELECT TO authenticated USING (true);
+
+CREATE POLICY "Users can create their own reports"
+  ON public.reports FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update their own reports"
+  ON public.reports FOR UPDATE TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.reports TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.notifications TO authenticated;
@@ -249,7 +255,7 @@ test('1. Admin identity: vachannoubade@gmail.com is restricted to trusted server
   }
 });
 
-test('2. Staff Allowlist: Only approved staff can register with non-PRN emails', async () => {
+test('2. Staff Allowlist: Only approved staff can register with non-PRN emails, user_metadata is ignored', async () => {
   await database.exec('BEGIN');
   try {
     // Add staff to allowlist
@@ -271,7 +277,19 @@ test('2. Staff Allowlist: Only approved staff can register with non-PRN emails',
     );
     assert.equal(membership.rows[0].membership_type, 'staff');
 
-    // Unapproved staff email is rejected
+    // Unapproved student trying to spoof staff via user_metadata gets assigned student role
+    const spoofId = '90000000-0000-4000-8000-000000000003';
+    await database.query(
+      "INSERT INTO auth.users (id, email, raw_user_meta_data) VALUES ($1, '242631055@sguk.ac.in', '{\"is_staff\": true, \"role\": \"admin\"}'::jsonb)",
+      [spoofId]
+    );
+    const spoofMembership = await database.query(
+      "SELECT membership_type FROM public.campus_memberships WHERE user_id = $1",
+      [spoofId]
+    );
+    assert.equal(spoofMembership.rows[0].membership_type, 'student');
+
+    // Unapproved non-PRN staff email is rejected
     await assert.rejects(
       database.query(
         "INSERT INTO auth.users (id, email) VALUES (gen_random_uuid(), 'unknown.prof@sguk.ac.in')"
@@ -294,7 +312,7 @@ test('3. Server-side report creation enforces input limits and rate limits', asy
     /Title must be between 5 and 70 characters/i
   );
 
-  // Enforces description word count <= 100 (using short words so length <= 700)
+  // Enforces description word count <= 100
   const longWords = Array(105).fill('word').join(' ');
   await assert.rejects(
     withRole(STUDENT_A, async () => {
@@ -322,10 +340,22 @@ test('3. Server-side report creation enforces input limits and rate limits', asy
   });
 });
 
-test('4. Rate limiting: Enforces max 3 reports per hour per user', async () => {
+test('4. Concurrency-safe rate limiting: enforces quota and rejects unsupported action types', async () => {
   await database.exec('BEGIN');
   try {
     await setAuthUser(STUDENT_A, 'student');
+
+    // Unsupported action type is rejected
+    await database.exec('SAVEPOINT sp_unsupported;');
+    try {
+      await assert.rejects(
+        database.query("SELECT public.check_and_record_rate_limit('malicious_action')"),
+        /Unsupported rate limit action type/i
+      );
+    } finally {
+      await database.exec('ROLLBACK TO SAVEPOINT sp_unsupported;');
+    }
+
     // 3 reports succeed
     for (let i = 1; i <= 3; i++) {
       await database.query(
@@ -334,35 +364,69 @@ test('4. Rate limiting: Enforces max 3 reports per hour per user', async () => {
     }
 
     // 4th report fails rate limit
-    await assert.rejects(
-      database.query(
-        "SELECT public.check_and_record_rate_limit('new_report')"
-      ),
-      /Rate limit exceeded: You can submit at most 3 reports per hour/i
-    );
+    await database.exec('SAVEPOINT sp_rate_limit;');
+    try {
+      await assert.rejects(
+        database.query(
+          "SELECT public.check_and_record_rate_limit('new_report')"
+        ),
+        /Rate limit exceeded: You can submit at most 3 reports per hour/i
+      );
+    } finally {
+      await database.exec('ROLLBACK TO SAVEPOINT sp_rate_limit;');
+    }
   } finally {
     await database.exec('ROLLBACK');
   }
 });
 
-test('5. Claims & Handover Workflow: One active claim, competing claims trigger dispute, desk completes handover', async () => {
+test('5. Claims & Handover: Direct API mutations revoked, approved claim required for handover', async () => {
   await database.exec('BEGIN');
   try {
     // Student B creates a found report
+    await setAuthUser(STUDENT_B, 'student');
     const foundReportId = '70000000-0000-4000-8000-000000000001';
     await database.query(`
       INSERT INTO public.reports (id, user_id, type, title, category, description, location, date, status)
       VALUES ('${foundReportId}', '${STUDENT_B}', 'found', 'Black Leather Wallet', 'Accessories', 'Found near cafeteria bench', 'Central Cafeteria', '2026-11-02', 'found');
     `);
 
-    // Student A submits a claim
+    // Student A direct INSERT into public.claims is denied (must use submit_claim_secure)
     await setAuthUser(STUDENT_A, 'student');
+    await database.exec('SAVEPOINT sp_direct_claim;');
+    try {
+      await assert.rejects(
+        database.query(
+          "INSERT INTO public.claims (found_report_id, claimant_id, claim_evidence, status) VALUES ($1, $2, 'Direct bypass attempt', 'APPROVED_FOR_HANDOVER')",
+          [foundReportId, STUDENT_A]
+        ),
+        /permission denied for table claims/i
+      );
+    } finally {
+      await database.exec('ROLLBACK TO SAVEPOINT sp_direct_claim;');
+    }
+
+    // Student A submits a legitimate claim via secure RPC
     const resA = await database.query(
       "SELECT public.submit_claim_secure($1, 'Has my college ID card inside with PRN 242631001 and cash') AS id",
       [foundReportId]
     );
     const claimAId = resA.rows[0].id;
     assert.ok(claimAId);
+
+    // Direct UPDATE on claims table is denied (claimant cannot approve their own claim)
+    await database.exec('SAVEPOINT sp_direct_update;');
+    try {
+      await assert.rejects(
+        database.query(
+          "UPDATE public.claims SET status = 'APPROVED_FOR_HANDOVER' WHERE id = $1",
+          [claimAId]
+        ),
+        /permission denied for table claims/i
+      );
+    } finally {
+      await database.exec('ROLLBACK TO SAVEPOINT sp_direct_update;');
+    }
 
     // Duplicate active claim by Student A is rejected
     await database.exec('SAVEPOINT sp_claim;');
@@ -378,7 +442,7 @@ test('5. Claims & Handover Workflow: One active claim, competing claims trigger 
       await database.exec('ROLLBACK TO SAVEPOINT sp_claim;');
     }
 
-    // Student C (or Admin testing) submits competing claim -> triggers DISPUTED status
+    // Competing claim submits -> triggers DISPUTED status
     await setAuthUser(ADMIN_ID, 'admin');
     const resB = await database.query(
       "SELECT public.submit_claim_secure($1, 'It belongs to my department colleague Dr Rao') AS id",
@@ -394,30 +458,70 @@ test('5. Claims & Handover Workflow: One active claim, competing claims trigger 
     );
     assert.equal(claims.rows.every(c => c.status === 'DISPUTED'), true);
 
-    // Student cannot authorize handover
-    await setAuthUser(STUDENT_A, 'student');
-    await database.exec('SAVEPOINT sp_handover;');
+    // Desk operator CANNOT complete handover for a DISPUTED claim
+    await setAuthUser(DESK_OP_ID, 'desk_operator');
+    await database.exec('SAVEPOINT sp_handover_disputed;');
     try {
       await assert.rejects(
         database.query(
-          "SELECT public.complete_handover_resolution($1, 'Central Helpdesk', 'Good condition', true)",
+          "SELECT public.complete_handover_resolution($1, 'Central Helpdesk', 'ID physically checked', true)",
           [claimAId]
         ),
-        /Only authorized desk operators or administrators can authorize physical handovers/i
+        /Cannot complete handover: Claim is disputed/i
       );
     } finally {
-      await database.exec('ROLLBACK TO SAVEPOINT sp_handover;');
+      await database.exec('ROLLBACK TO SAVEPOINT sp_handover_disputed;');
+    }
+
+    // Desk operator explicitly reviews and approves Claim A for handover
+    await database.query(
+      "SELECT public.review_claim_status($1, 'APPROVED_FOR_HANDOVER', 'Verified student PRN and ID match')",
+      [claimAId]
+    );
+
+    const approvedClaim = await database.query("SELECT status FROM public.claims WHERE id = $1", [claimAId]);
+    assert.equal(approvedClaim.rows[0].status, 'APPROVED_FOR_HANDOVER');
+
+    // Competing claim was automatically rejected
+    const rejectedClaim = await database.query("SELECT status FROM public.claims WHERE id = $1", [claimBId]);
+    assert.equal(rejectedClaim.rows[0].status, 'REJECTED');
+
+    // Handover rejected if physical identity is not verified
+    await database.exec('SAVEPOINT sp_unverified_id;');
+    try {
+      await assert.rejects(
+        database.query(
+          "SELECT public.complete_handover_resolution($1, 'Central Helpdesk', 'ID checked', false)",
+          [claimAId]
+        ),
+        /Student identity and PRN must be physically verified/i
+      );
+    } finally {
+      await database.exec('ROLLBACK TO SAVEPOINT sp_unverified_id;');
     }
 
     // Authorized Desk Operator completes physical handover
-    await setAuthUser(DESK_OP_ID, 'desk_operator');
     const resolution = await database.query(
       "SELECT public.complete_handover_resolution($1, 'Central Helpdesk', 'ID physically checked, cash intact', true) AS result",
       [claimAId]
     );
     assert.equal(resolution.rows[0].result.success, true);
 
-    // Found report is resolved (checked by Admin since resolved reports are restricted from non-admin users)
+    // Duplicate handover on the same found item is rejected
+    await database.exec('SAVEPOINT sp_dup_handover;');
+    try {
+      await assert.rejects(
+        database.query(
+          "SELECT public.complete_handover_resolution($1, 'Central Helpdesk', 'Another handover attempt', true)",
+          [claimAId]
+        ),
+        /Handover has already been completed for this claim/i
+      );
+    } finally {
+      await database.exec('ROLLBACK TO SAVEPOINT sp_dup_handover;');
+    }
+
+    // Found report is resolved
     await setAuthUser(ADMIN_ID, 'admin');
     const reportStatus = await database.query(
       "SELECT status, custody_status FROM public.reports WHERE id = $1",
@@ -429,34 +533,118 @@ test('5. Claims & Handover Workflow: One active claim, competing claims trigger 
     // Claim A is resolved
     const claimA = await database.query("SELECT status FROM public.claims WHERE id = $1", [claimAId]);
     assert.equal(claimA.rows[0].status, 'RESOLVED');
-
-    // Competing claim was rejected
-    const otherClaims = await database.query(
-      "SELECT status FROM public.claims WHERE found_report_id = $1 AND id <> $2",
-      [foundReportId, claimAId]
-    );
-    assert.equal(otherClaims.rows[0].status, 'REJECTED');
   } finally {
     await database.exec('ROLLBACK');
   }
 });
 
-test('6. Suspended account cannot create reports or submit claims', async () => {
-  await assert.rejects(
-    withRole(SUSPENDED_USER_ID, async () => {
-      await database.query(
-        "SELECT public.create_report_secure('lost', 'Watch Titanium Case', 'Accessories', 'Lost near sports complex', 'Sports Complex', '2026-11-03')"
-      );
-    }),
-    /Your campus account is not active/i
-  );
-});
-
-test('7. Rollback restores the pre-architecture schema cleanly', async () => {
-  const rollbackSql = await readFile(architectureRollbackPath, 'utf8');
-
+test('6. Universal Membership Revocation: Suspended and revoked users lose report, image, and claim access', async () => {
   await database.exec('BEGIN');
   try {
+    // Create an active report by Student A
+    await setAuthUser(STUDENT_A, 'student');
+    const activeReportId = '70000000-0000-4000-8000-000000000002';
+    await database.query(`
+      INSERT INTO public.reports (id, user_id, type, title, category, description, location, date, status, image_url)
+      VALUES ('${activeReportId}', '${STUDENT_A}', 'lost', 'Scientific Calculator', 'Electronics', 'Casio fx-991EX', 'Engineering Block', '2026-11-03', 'lost', '${STUDENT_A}/calc.jpg');
+    `);
+
+    // Suspended student gets 0 rows on SELECT reports due to restrictive active membership policy
+    await setAuthUser(SUSPENDED_USER_ID, 'student');
+    const visibleReports = await database.query("SELECT id FROM public.reports WHERE id = $1", [activeReportId]);
+    assert.equal(visibleReports.rows.length, 0);
+
+    // Suspended student denied image access
+    const canAccessImage = await database.query(
+      "SELECT public.can_access_report_image($1) AS allowed",
+      [`${STUDENT_A}/calc.jpg`]
+    );
+    assert.equal(canAccessImage.rows[0].allowed, false);
+
+    // Suspended user cannot submit report
+    await database.exec('SAVEPOINT sp_susp_report;');
+    try {
+      await assert.rejects(
+        database.query(
+          "SELECT public.create_report_secure('lost', 'Watch Titanium Case', 'Accessories', 'Lost near sports complex', 'Sports Complex', '2026-11-03')"
+        ),
+        /Your campus account is not active/i
+      );
+    } finally {
+      await database.exec('ROLLBACK TO SAVEPOINT sp_susp_report;');
+    }
+
+    // Suspended user cannot submit claim
+    await database.exec('SAVEPOINT sp_susp_claim;');
+    try {
+      await assert.rejects(
+        database.query(
+          "SELECT public.submit_claim_secure($1, 'This is my calculator left in hall')",
+          [activeReportId]
+        ),
+        /Active campus account required/i
+      );
+    } finally {
+      await database.exec('ROLLBACK TO SAVEPOINT sp_susp_claim;');
+    }
+
+    // Student direct modification of campus_memberships is denied
+    await database.exec('SAVEPOINT sp_tamper_membership;');
+    try {
+      await assert.rejects(
+        database.query(`
+          UPDATE public.campus_memberships SET status = 'REVOKED' WHERE user_id = '${ADMIN_ID}';
+        `),
+        /permission denied for table campus_memberships/i
+      );
+    } finally {
+      await database.exec('ROLLBACK TO SAVEPOINT sp_tamper_membership;');
+    }
+
+    // Server administrative update revokes admin's membership
+    await database.exec('RESET ROLE');
+    await database.query(`
+      UPDATE public.campus_memberships SET status = 'REVOKED' WHERE user_id = '${ADMIN_ID}';
+    `);
+    await setAuthUser(ADMIN_ID, 'admin');
+    const isAdmin = await database.query("SELECT public.is_current_user_admin() AS is_admin");
+    assert.equal(isAdmin.rows[0].is_admin, false);
+  } finally {
+    await database.exec('ROLLBACK');
+  }
+});
+
+test('7. Rollback safety: Aborts when production data exists, executes cleanly with override', async () => {
+  const rollbackSql = await readFile(architectureRollbackPath, 'utf8');
+
+  // Insert a test claim
+  await database.exec('BEGIN');
+  try {
+    await setAuthUser(STUDENT_B, 'student');
+    const reportId = '70000000-0000-4000-8000-000000000003';
+    await database.query(`
+      INSERT INTO public.reports (id, user_id, type, title, category, description, location, date, status)
+      VALUES ('${reportId}', '${STUDENT_B}', 'found', 'Car Key Fob', 'Keys', 'Found in parking lot', 'Parking P1', '2026-11-04', 'found');
+    `);
+    await setAuthUser(STUDENT_A, 'student');
+    await database.query(
+      "SELECT public.submit_claim_secure($1, 'Honda fob with red lanyard')",
+      [reportId]
+    );
+
+    // Rollback without override should ABORT
+    await assert.rejects(
+      database.exec(rollbackSql),
+      /SAFETY ABORT: Production data detected/i
+    );
+  } finally {
+    await database.exec('ROLLBACK');
+  }
+
+  // Rollback with override succeeds
+  await database.exec('BEGIN');
+  try {
+    await database.exec("SET lostlink.allow_destructive_rollback = 'true'");
     await database.exec(rollbackSql);
 
     const tables = await database.query(`

@@ -1,17 +1,41 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { INITIAL_ADMIN_EMAIL, isTrustedAdminUser } from '../lib/admin';
-import { ShieldCheck, Lock, AlertCircle, CheckCircle2, Loader2, ArrowLeft, KeyRound } from 'lucide-react';
+import { ShieldCheck, Lock, AlertCircle, CheckCircle2, Loader2, ArrowLeft, KeyRound, Check } from 'lucide-react';
 
 export const AdminLogin: React.FC = () => {
   const navigate = useNavigate();
   const [email, setEmail] = useState(INITIAL_ADMIN_EMAIL);
   const [password, setPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [resetSent, setResetSent] = useState(false);
+
+  // Detect password recovery redirect mode from URL hash, params, or session
+  const [isRecoveryMode, setIsRecoveryMode] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const hash = window.location.hash || '';
+      const search = window.location.search || '';
+      return hash.includes('type=recovery') || search.includes('type=recovery') || search.includes('mode=update-password');
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    if (!supabase) return;
+    const { data: authListener } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setIsRecoveryMode(true);
+      }
+    });
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
+  }, []);
 
   const handleAdminSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -59,6 +83,64 @@ export const AdminLogin: React.FC = () => {
       }, 800);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An unexpected error occurred during administrative login.');
+      setLoading(false);
+    }
+  };
+
+  const handleSetNewPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSuccessMessage(null);
+
+    if (newPassword.length < 8) {
+      setError('Password must be at least 8 characters long.');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setError('Passwords do not match.');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      if (!supabase) {
+        setError('Supabase client is not configured.');
+        setLoading(false);
+        return;
+      }
+
+      const { data, error: updateError } = await supabase.auth.updateUser({
+        password: newPassword
+      });
+
+      if (updateError) {
+        setError(updateError.message);
+        setLoading(false);
+        return;
+      }
+
+      if (!data.user) {
+        setError('Failed to establish administrative credentials.');
+        setLoading(false);
+        return;
+      }
+
+      if (!isTrustedAdminUser(data.user)) {
+        await supabase.auth.signOut();
+        setError('Access Denied: Password updated, but this account is not authorized with server-controlled administrator privileges.');
+        setLoading(false);
+        return;
+      }
+
+      setSuccessMessage('Administrator password established successfully! Redirecting to Admin Portal...');
+      setTimeout(() => {
+        navigate('/admin');
+      }, 1000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update administrator password.');
+    } finally {
       setLoading(false);
     }
   };
@@ -144,10 +226,10 @@ export const AdminLogin: React.FC = () => {
             <ShieldCheck size={26} />
           </div>
           <h1 style={{ fontSize: '1.4rem', fontWeight: 650, color: 'var(--text-main)', margin: '0 0 6px 0' }}>
-            Administrative Portal
+            {isRecoveryMode ? 'Set Administrator Password' : 'Administrative Portal'}
           </h1>
           <p style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', margin: 0 }}>
-            Restricted access for Sanjay Ghodawat University operations
+            {isRecoveryMode ? 'Establish credentials for authorized administrative access' : 'Restricted access for Sanjay Ghodawat University operations'}
           </p>
         </div>
 
@@ -201,90 +283,162 @@ export const AdminLogin: React.FC = () => {
           </div>
         )}
 
-        <form onSubmit={handleAdminSignIn}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div>
-              <label className="form-label" style={{ fontSize: '0.82rem', fontWeight: 600, marginBottom: '4px' }}>
-                Administrator Email
-              </label>
-              <input
-                type="email"
-                required
-                className="form-control"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="vachannoubade@gmail.com"
-                style={{ fontSize: '0.88rem' }}
-              />
-            </div>
-
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                <label className="form-label" style={{ fontSize: '0.82rem', fontWeight: 600, margin: 0 }}>
-                  Password
+        {isRecoveryMode ? (
+          <form onSubmit={handleSetNewPassword}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div>
+                <label className="form-label" style={{ fontSize: '0.82rem', fontWeight: 600, marginBottom: '4px' }}>
+                  New Administrator Password
                 </label>
-                <button
-                  type="button"
-                  onClick={handleSendPasswordSetup}
-                  disabled={loading}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: 'var(--primary)',
-                    fontSize: '0.78rem',
-                    cursor: 'pointer',
-                    padding: 0,
-                    textDecoration: 'underline'
-                  }}
-                >
-                  Setup / Forgot Password?
-                </button>
+                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                  <input
+                    type="password"
+                    required
+                    minLength={8}
+                    className="form-control"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="At least 8 characters"
+                    style={{ fontSize: '0.88rem', paddingLeft: '34px' }}
+                  />
+                  <Lock size={15} color="var(--text-muted)" style={{ position: 'absolute', left: '10px' }} />
+                </div>
               </div>
-              <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+
+              <div>
+                <label className="form-label" style={{ fontSize: '0.82rem', fontWeight: 600, marginBottom: '4px' }}>
+                  Confirm Password
+                </label>
+                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                  <input
+                    type="password"
+                    required
+                    minLength={8}
+                    className="form-control"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Re-enter password"
+                    style={{ fontSize: '0.88rem', paddingLeft: '34px' }}
+                  />
+                  <Lock size={15} color="var(--text-muted)" style={{ position: 'absolute', left: '10px' }} />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="btn btn-primary"
+                disabled={loading}
+                style={{
+                  width: '100%',
+                  padding: '10px',
+                  fontSize: '0.9rem',
+                  marginTop: '6px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px'
+                }}
+              >
+                {loading ? (
+                  <>
+                    <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
+                    Saving Password...
+                  </>
+                ) : (
+                  <>
+                    <Check size={16} />
+                    Save & Proceed to Admin Portal
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+        ) : (
+          <form onSubmit={handleAdminSignIn}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div>
+                <label className="form-label" style={{ fontSize: '0.82rem', fontWeight: 600, marginBottom: '4px' }}>
+                  Administrator Email
+                </label>
                 <input
-                  type="password"
+                  type="email"
                   required
                   className="form-control"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••••••"
-                  style={{ fontSize: '0.88rem', paddingLeft: '34px' }}
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="vachannoubade@gmail.com"
+                  style={{ fontSize: '0.88rem' }}
                 />
-                <Lock size={15} color="var(--text-muted)" style={{ position: 'absolute', left: '10px' }} />
               </div>
+
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <label className="form-label" style={{ fontSize: '0.82rem', fontWeight: 600, margin: 0 }}>
+                    Password
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleSendPasswordSetup}
+                    disabled={loading}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: 'var(--primary)',
+                      fontSize: '0.78rem',
+                      cursor: 'pointer',
+                      padding: 0,
+                      textDecoration: 'underline'
+                    }}
+                  >
+                    Setup / Forgot Password?
+                  </button>
+                </div>
+                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                  <input
+                    type="password"
+                    required
+                    className="form-control"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••••••"
+                    style={{ fontSize: '0.88rem', paddingLeft: '34px' }}
+                  />
+                  <Lock size={15} color="var(--text-muted)" style={{ position: 'absolute', left: '10px' }} />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="btn btn-primary"
+                disabled={loading}
+                style={{
+                  width: '100%',
+                  padding: '10px',
+                  fontSize: '0.9rem',
+                  marginTop: '6px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px'
+                }}
+              >
+                {loading ? (
+                  <>
+                    <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
+                    Verifying Credentials...
+                  </>
+                ) : (
+                  <>
+                    <KeyRound size={16} />
+                    Sign In to Admin Portal
+                  </>
+                )}
+              </button>
             </div>
+          </form>
+        )}
 
-            <button
-              type="submit"
-              className="btn btn-primary"
-              disabled={loading}
-              style={{
-                width: '100%',
-                padding: '10px',
-                fontSize: '0.9rem',
-                marginTop: '6px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '8px'
-              }}
-            >
-              {loading ? (
-                <>
-                  <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
-                  Verifying Credentials...
-                </>
-              ) : (
-                <>
-                  <KeyRound size={16} />
-                  Sign In to Admin Portal
-                </>
-              )}
-            </button>
-          </div>
-        </form>
-
-        {resetSent && (
+        {resetSent && !isRecoveryMode && (
           <div style={{ marginTop: '16px', fontSize: '0.78rem', color: 'var(--text-secondary)', textAlign: 'center' }}>
             Check your email for the password setup link, complete credential establishment, then return here to log in.
           </div>

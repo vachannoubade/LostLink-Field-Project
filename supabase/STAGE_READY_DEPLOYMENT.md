@@ -374,29 +374,42 @@ The portal labels this as `LIVE + PERSISTED`. Confirm that the Matched tab and c
 
 ---
 
-## 6. Rollback
+## 6. Rollback & Forward-Repair Strategy
 
-Preferred rollback: restore the pre-migration backup or PITR snapshot.
+### Recommended: Non-Destructive Forward-Repair
+In a production deployment, **never perform a destructive rollback that drops recovery tables** once students have filed claims, physical handovers have occurred, or audit logs have accumulated. Dropping tables permanently destroys custody records, legal evidence of property return, and audit trails.
 
+If a bug or schema discrepancy occurs in production:
+1. Apply a non-destructive forward migration that repairs the trigger, policy, or RPC.
+2. If necessary, suspend active signups or put desks in maintenance mode using `UPDATE public.campus_desks SET is_active = false;`.
+3. Preserve all historical claims, handovers, and audit logs.
+
+### Emergency Rollback (Staging / Pre-Production Only)
 Emergency SQL rollback should be performed in reverse chronological order:
 
-### Step 1: Rollback Campus Recovery Architecture (`20261113160000`)
+#### Step 1: Rollback Campus Recovery Architecture (`20261113160000`)
 ```bash
+# Safety Guard: If production data exists, the rollback script will automatically abort
+# To authorize intentional destructive rollback in testing:
+# SET lostlink.allow_destructive_rollback = 'true';
+
 psql "$STAGING_DATABASE_URL" \
   --file="supabase/rollback/20261113160000_campus_recovery_handover_architecture_rollback.sql"
 ```
-This rollback script cleanly drops:
-- `handover_records`, `claims`, `report_private_details`, `moderation_reports`, `audit_logs`, `rate_limit_events`, `campus_desks`, `staff_allowlist`, and `campus_memberships`.
-- Stored procedures (`create_report_secure`, `submit_claim_secure`, `complete_handover_resolution`, `check_and_record_rate_limit`, `is_caller_active_member`, `is_current_user_desk_operator`).
-- Restores the original `enforce_college_email_domain()` function.
 
-### Step 2: Rollback Access Hardening (`20261113120000`) (if required)
+#### Step 2: Rollback Access Hardening (`20261113120000`) (if required)
 ```bash
 psql "$STAGING_DATABASE_URL" \
   --file="supabase/rollback/20261113120000_stage_ready_access_hardening_rollback.sql"
 ```
 
-The rollback scripts do not delete historical reports, images, profiles, or matches, and do not remove the storage bucket. After a rollback, fix the migration and re-apply, or restore from backup.
+### Irreversible Rollback Limitations:
+- Running destructive table drops after live operations will result in permanent loss of:
+  - All verified student ownership claims (`claims`).
+  - Physical helpdesk custody verification and handover receipts (`handover_records`).
+  - Security audit events and rate-limit logs (`audit_logs`, `rate_limit_events`).
+  - Pre-approved faculty and staff credentials (`staff_allowlist`).
+- Therefore, destructive rollback is barred unless explicitly forced via session setting, and forward repair is the mandatory operational standard in production.
 
 ---
 

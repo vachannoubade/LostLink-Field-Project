@@ -334,6 +334,28 @@ export const AdminPortal: React.FC = () => {
     return map;
   }, [reports]);
 
+  // Approve Claim for Handover
+  const handleApproveClaim = async (claimId: string, notes?: string) => {
+    if (!supabase || !claimId) return;
+    setError(null);
+    setActionSuccess(null);
+    try {
+      const { error: rpcErr } = await supabase.rpc('review_claim_status', {
+        p_claim_id: claimId,
+        p_new_status: 'APPROVED_FOR_HANDOVER',
+        p_review_notes: notes || 'Approved for physical handover at campus helpdesk.'
+      });
+      if (rpcErr) {
+        setError(rpcErr.message);
+      } else {
+        setActionSuccess('Claim approved for handover! Desk operator may now proceed with physical handover.');
+        refreshRecords();
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to approve claim.');
+    }
+  };
+
   // Handover Execution
   const handleExecuteHandover = async () => {
     if (!supabase || !resolvingClaim) return;
@@ -813,7 +835,7 @@ export const AdminPortal: React.FC = () => {
                           {formatDateTime(claim.createdAt || claim.created_at)}
                         </td>
                         <td style={{ padding: '12px 16px', textAlign: 'right' }}>
-                          {claim.status !== 'RESOLVED' && claim.status !== 'REJECTED' && (
+                          {claim.status === 'APPROVED_FOR_HANDOVER' ? (
                             <button
                               onClick={() => {
                                 setResolvingClaim(claim);
@@ -825,7 +847,15 @@ export const AdminPortal: React.FC = () => {
                             >
                               Authorize Handover
                             </button>
-                          )}
+                          ) : (claim.status === 'REQUESTED' || claim.status === 'UNDER_REVIEW') ? (
+                            <button
+                              onClick={() => handleApproveClaim(claim.id)}
+                              className="btn btn-secondary"
+                              style={{ padding: '4px 10px', fontSize: '0.78rem', color: 'var(--primary)', borderColor: 'var(--primary)' }}
+                            >
+                              Approve Claim
+                            </button>
+                          ) : null}
                         </td>
                       </tr>
                     );
@@ -873,11 +903,7 @@ export const AdminPortal: React.FC = () => {
                       </div>
 
                       <button
-                        onClick={() => {
-                          setResolvingClaim(disputeClaim);
-                          setResolutionError(null);
-                          setIdVerified(false);
-                        }}
+                        onClick={() => handleApproveClaim(disputeClaim.id, 'Awarded to claimant after dispute review.')}
                         className="btn btn-primary"
                         style={{ padding: '6px 12px', fontSize: '0.82rem' }}
                       >
