@@ -52,35 +52,56 @@ Do **not** use `user_metadata`, local storage, URL parameters, or an editable `p
 
 ---
 
-## 2. Administrator Provisioning Procedure
+## 2. Administrator Provisioning & Lifecycle Architecture
 
-The initial authorized administrator email is:
+The sole authorized initial administrator email is:
 `vachannoubade@gmail.com`
 
 This account is an authorized exception to the `@sguk.ac.in` PRN email requirement, but **cannot** be registered through public signup.
 
-### Initial Setup Steps:
-1. In the Supabase Dashboard, go to **Authentication > Users**.
-2. If `vachannoubade@gmail.com` already exists, run the following SQL command in the SQL Editor:
-   ```sql
-   UPDATE auth.users
-   SET raw_app_meta_data = coalesce(raw_app_meta_data, '{}'::jsonb) || '{"role": "admin"}'::jsonb
-   WHERE email = 'vachannoubade@gmail.com';
+### Initial Provisioning Procedure:
+The project provides a dedicated, transaction-safe, idempotent SQL script at:
+`supabase/provision_admin.sql`
 
-   -- Upsert active administrator membership
-   INSERT INTO public.campus_memberships (user_id, membership_type, status)
-   SELECT id, 'admin', 'ACTIVE'
-   FROM auth.users
-   WHERE email = 'vachannoubade@gmail.com'
-   ON CONFLICT (user_id) DO UPDATE SET membership_type = 'admin', status = 'ACTIVE';
-   ```
-3. If the user does not exist yet, invite the user via **Authentication > Users > Invite user** with email `vachannoubade@gmail.com`, then run the SQL above.
-4. The administrator sets their own password by following the invitation link or by using the **"Request password setup / reset"** button at `/admin/login`.
-5. Multi-Factor Authentication (MFA / TOTP) should be enabled by the administrator within Supabase Auth settings upon initial sign-in.
+1. In the Supabase Dashboard, go to **Authentication > Users** and verify `vachannoubade@gmail.com` exists.
+   - If the account does not exist, invite the user via **Authentication > Users > Invite user** with email `vachannoubade@gmail.com`.
+2. Open the **SQL Editor** in the Supabase Dashboard.
+3. Paste and execute the contents of `supabase/provision_admin.sql`.
+   - The script confirms the administrator's email.
+   - Upgrades `raw_app_meta_data` to `{"role": "admin", "admin_provisioned_at": "..."}`.
+   - Upserts an `ACTIVE` `campus_memberships` record with `membership_type = 'admin'`.
+   - Records an immutable audit log in `public.audit_logs`.
+   - Guarantees transaction safety and fails cleanly if the identity is missing or ambiguous.
+
+### Supabase Auth URL Configuration:
+In the Supabase Dashboard under **Authentication > URL Configuration**:
+- **Site URL**: `https://your-production-app.vercel.app` (or `http://localhost:5173` for development).
+- **Redirect URLs**: Add the following allowlisted paths:
+  - `https://your-production-app.vercel.app/auth?mode=update-password&redirectTo=/admin`
+  - `https://your-production-app.vercel.app/auth*`
+  - `http://localhost:5173/auth?mode=update-password&redirectTo=/admin`
+  - `http://localhost:5173/auth*`
+
+### Administrator Password Setup & Recovery Lifecycle:
+1. **Password Setup / Reset Request**:
+   - The administrator visits `/admin/login` and clicks "Request password setup / reset".
+   - The system calls `supabase.auth.resetPasswordForEmail` directing to `/auth?mode=update-password&redirectTo=/admin`.
+   - Generic confirmation messaging is displayed to prevent account enumeration.
+2. **Secure Password Entry**:
+   - The administrator clicks the link in their email, which establishes an authenticated recovery session.
+   - The page `/auth?mode=update-password&redirectTo=/admin` validates the recovery token and enforces an 8+ character password.
+   - If accessed without an active recovery token, an "Invalid or Expired Link" warning is shown with a link back to `/admin/login`.
+3. **Server-Side Authorization Gating**:
+   - After updating the password, the client calls `can_access_admin_portal()` via RPC.
+   - Only when the database confirms the user has `raw_app_meta_data.role = 'admin'` AND an active, unexpired `campus_memberships` record is the administrator redirected into `/admin`.
+4. **Session Termination & Cache Eviction**:
+   - On signing out of the Admin Portal or Layout, `signOut()` is called, signed image URL caches are cleared via `clearSignedUrlCache()`, and the user is redirected to `/admin/login`.
+5. **MFA Recommendation**:
+   - Multi-Factor Authentication (TOTP) should be enabled by the administrator within Supabase Auth settings upon initial sign-in.
 
 ---
 
-## 2. Prerequisites
+## 3. Prerequisites
 
 - Staging Supabase project with the existing LostLink migrations.
 - Supabase CLI for the preferred deployment path.
@@ -100,7 +121,7 @@ Recommended role separation:
 
 ---
 
-## 3. Preflight
+## 4. Preflight
 
 1. Confirm the staging project, not live.
 2. Confirm current migration state:
@@ -111,7 +132,7 @@ Recommended role separation:
    ```
 
 3. Confirm `20261012163500` and `20261015113000` are applied.
-4. Review `20261113120000_stage_ready_access_hardening.sql` and record its checksum.
+4. Review `20261113120000_stage_ready_access_hardening.sql` and `20261113160000_campus_recovery_handover_architecture.sql`, recording their checksums.
 5. Capture the current policy snapshot before applying:
 
    ```sql
@@ -169,7 +190,7 @@ If a full logical backup including `auth` is required, encrypt it and delete it 
 
 ---
 
-## 4. Apply on staging
+## 5. Apply on staging
 
 Preferred path:
 
@@ -232,7 +253,7 @@ If an account is permanently removed from `auth.users`, all linked profile rows,
 
 ---
 
-## 5. Staging verification
+## 6. Staging verification
 
 ### 5.1 Schema verification
 
@@ -374,7 +395,7 @@ The portal labels this as `LIVE + PERSISTED`. Confirm that the Matched tab and c
 
 ---
 
-## 6. Rollback & Forward-Repair Strategy
+## 7. Rollback & Forward-Repair Strategy
 
 ### Recommended: Non-Destructive Forward-Repair
 In a production deployment, **never perform a destructive rollback that drops recovery tables** once students have filed claims, physical handovers have occurred, or audit logs have accumulated. Dropping tables permanently destroys custody records, legal evidence of property return, and audit trails.
@@ -413,7 +434,7 @@ psql "$STAGING_DATABASE_URL" \
 
 ---
 
-## 7. Live deployment gate
+## 8. Live deployment gate
 
 Apply to live only when all of the following are true:
 
@@ -438,7 +459,7 @@ If a live verification fails, stop, preserve logs, and roll back using the appro
 
 ---
 
-## 8. Local reproducibility
+## 9. Local reproducibility
 
 These checks run in this workspace and do not touch staging or live:
 
@@ -449,8 +470,8 @@ npm run lint
 npm run build
 ```
 
-- `npm test`: Runs **45 unit tests** across matching heuristics, verification logic, Supabase URL protection, college PRN email regex, admin access guards, and claim input validation.
-- `npm run test:db`: Runs **16 database tests** against `@electric-sql/pglite` validating both `20261113120000_stage_ready_access_hardening.sql` and `20261113160000_campus_recovery_handover_architecture.sql`:
+- `npm test`: Runs **47 unit tests** across matching heuristics, verification logic, Supabase URL protection, college PRN email regex, admin access guards (including open-redirect sanitization and authorized initial admin identity), and claim input validation.
+- `npm run test:db`: Runs **18 database tests** against `@electric-sql/pglite` validating both `20261113120000_stage_ready_access_hardening.sql` and `20261113160000_campus_recovery_handover_architecture.sql`:
   - Resolved report invisibility to students and visibility to admins.
   - Sensitive and archived image access control.
   - Storage path-traversal rejection.
@@ -460,8 +481,10 @@ npm run build
   - Staff allowlist pre-approval.
   - Server-side rate limiting and input length constraints.
   - Complete claims lifecycle, competing claim dispute handling, and helpdesk handover.
-  - Suspended account blocking.
-  - Clean transaction rollback for both migrations.
+  - Universal membership revocation (suspended/revoked accounts immediately blocked across reports, claims, and storage).
+  - Authoritative `can_access_admin_portal()` server-side authorization check.
+  - Safe, idempotent initial admin provisioning script (`supabase/provision_admin.sql`).
+  - Production data safety guards and clean transaction rollback for both migrations.
 - `npm run lint`: 0 errors.
 - `npm run build`: Production TypeScript compilation and Vite bundling with zero leaks.
 

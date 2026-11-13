@@ -13,6 +13,9 @@ const architectureMigrationPath = fileURLToPath(
 const architectureRollbackPath = fileURLToPath(
   new URL('../../supabase/rollback/20261113160000_campus_recovery_handover_architecture_rollback.sql', import.meta.url)
 );
+const provisionAdminPath = fileURLToPath(
+  new URL('../../supabase/provision_admin.sql', import.meta.url)
+);
 
 const STUDENT_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const STUDENT_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -53,6 +56,9 @@ GRANT EXECUTE ON FUNCTION auth.uid() TO authenticated, anon;
 CREATE TABLE auth.users (
   id uuid PRIMARY KEY,
   email text,
+  email_confirmed_at timestamptz,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now(),
   raw_user_meta_data jsonb DEFAULT '{}'::jsonb,
   raw_app_meta_data jsonb DEFAULT '{}'::jsonb
 );
@@ -614,7 +620,115 @@ test('6. Universal Membership Revocation: Suspended and revoked users lose repor
   }
 });
 
-test('7. Rollback safety: Aborts when production data exists, executes cleanly with override', async () => {
+test('7. can_access_admin_portal() server-side authorization security check', async () => {
+  await database.exec('BEGIN');
+  try {
+    // 1. Authorized Active Admin passes
+    await setAuthUser(ADMIN_ID, 'admin');
+    const adminCheck = await database.query("SELECT public.can_access_admin_portal() AS allowed;");
+    assert.equal(adminCheck.rows[0].allowed, true);
+
+    // 2. Student is rejected
+    await setAuthUser(STUDENT_A, 'student');
+    const studentCheck = await database.query("SELECT public.can_access_admin_portal() AS allowed;");
+    assert.equal(studentCheck.rows[0].allowed, false);
+
+    // 3. Desk Operator is rejected (portal is reserved for trusted admin role)
+    await setAuthUser(DESK_OP_ID, 'desk_operator');
+    const deskCheck = await database.query("SELECT public.can_access_admin_portal() AS allowed;");
+    assert.equal(deskCheck.rows[0].allowed, false);
+
+    // 4. Suspended admin is rejected immediately
+    await database.exec('RESET ROLE');
+    await database.query(`UPDATE public.campus_memberships SET status = 'SUSPENDED' WHERE user_id = '${ADMIN_ID}';`);
+    await setAuthUser(ADMIN_ID, 'admin');
+    const suspendedCheck = await database.query("SELECT public.can_access_admin_portal() AS allowed;");
+    assert.equal(suspendedCheck.rows[0].allowed, false);
+
+    // 5. Expired admin is rejected
+    await database.exec('RESET ROLE');
+    await database.query(`UPDATE public.campus_memberships SET status = 'ACTIVE', expires_at = now() - interval '1 day' WHERE user_id = '${ADMIN_ID}';`);
+    await setAuthUser(ADMIN_ID, 'admin');
+    const expiredCheck = await database.query("SELECT public.can_access_admin_portal() AS allowed;");
+    assert.equal(expiredCheck.rows[0].allowed, false);
+
+    // 6. Restore active status
+    await database.exec('RESET ROLE');
+    await database.query(`UPDATE public.campus_memberships SET status = 'ACTIVE', expires_at = NULL WHERE user_id = '${ADMIN_ID}';`);
+
+    // 7. Forged student JWT claiming role 'admin' while db user has role 'student' is rejected
+    const forgedClaims = {
+      sub: STUDENT_A,
+      role: 'authenticated',
+      app_metadata: { role: 'admin' }
+    };
+    await database.query("SELECT set_config('request.jwt.claims', $1::text, true)", [JSON.stringify(forgedClaims)]);
+    await database.exec('SET LOCAL ROLE authenticated');
+    const forgedCheck = await database.query("SELECT public.can_access_admin_portal() AS allowed;");
+    assert.equal(forgedCheck.rows[0].allowed, false);
+
+    // 8. Anonymous caller has EXECUTE permission revoked and is denied immediately
+    await setAuthUser(null);
+    await assert.rejects(
+      database.query("SELECT public.can_access_admin_portal() AS allowed;"),
+      /permission denied for function can_access_admin_portal/i
+    );
+  } finally {
+    await database.exec('ROLLBACK');
+  }
+});
+
+test('8. Safe, idempotent initial admin provisioning script (provision_admin.sql)', async () => {
+  const provisionSql = await readFile(provisionAdminPath, 'utf8');
+
+  // 1. Run provision_admin.sql against the database
+  await database.exec(provisionSql);
+
+  // 2. Verify auth.users state
+  const userRow = await database.query(`
+    SELECT email, email_confirmed_at, raw_app_meta_data
+    FROM auth.users
+    WHERE lower(email) = 'vachannoubade@gmail.com'
+  `);
+  assert.equal(userRow.rows.length, 1);
+  assert.notEqual(userRow.rows[0].email_confirmed_at, null);
+  assert.equal(userRow.rows[0].raw_app_meta_data.role, 'admin');
+
+  // 3. Verify campus_memberships record
+  const memberRow = await database.query(`
+    SELECT membership_type, status, expires_at
+    FROM public.campus_memberships
+    WHERE user_id = '${ADMIN_ID}'
+  `);
+  assert.equal(memberRow.rows.length, 1);
+  assert.equal(memberRow.rows[0].membership_type, 'admin');
+  assert.equal(memberRow.rows[0].status, 'ACTIVE');
+  assert.equal(memberRow.rows[0].expires_at, null);
+
+  // 4. Verify audit_logs record
+  const auditRow = await database.query(`
+    SELECT action, entity_type, details
+    FROM public.audit_logs
+    WHERE action = 'ADMIN_PROVISIONED' AND actor_id = '${ADMIN_ID}'
+  `);
+  assert.equal(auditRow.rows.length, 1);
+  assert.equal(auditRow.rows[0].details.email, 'vachannoubade@gmail.com');
+
+  // 5. Test idempotence: running provision_admin.sql a second time succeeds without duplication
+  await database.exec(provisionSql);
+
+  // 6. Verify admin can access admin portal in an active session
+  await database.exec('BEGIN');
+  try {
+    await setAuthUser(ADMIN_ID, 'admin');
+    const canAccess = await database.query("SELECT public.can_access_admin_portal() AS allowed;");
+    assert.equal(canAccess.rows[0].allowed, true);
+  } finally {
+    await database.exec('ROLLBACK');
+  }
+});
+
+test('9. Rollback safety: Aborts when production data exists, executes cleanly with override', async () => {
   const rollbackSql = await readFile(architectureRollbackPath, 'utf8');
 
   // Insert a test claim

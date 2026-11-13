@@ -108,11 +108,12 @@ export const Layout: React.FC = () => {
   const avatarLetter = displayName.charAt(0).toUpperCase() || 'U';
 
   const handleSignOut = async () => {
+    const wasAdmin = Boolean(profile?.isAdmin);
     try {
       await signOut();
-      navigate('/login');
+      navigate(wasAdmin ? '/admin/login' : '/login');
     } catch {
-      navigate('/login');
+      navigate(wasAdmin ? '/admin/login' : '/login');
     }
   };
 

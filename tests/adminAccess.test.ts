@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  INITIAL_ADMIN_EMAIL,
   getTrustedRole,
+  isAuthorizedInitialAdminEmail,
+  getSafeInternalDestination,
   isTrustedAdminUser,
   isTrustedDeskOperator,
   isTrustedStaffUser
@@ -65,4 +68,50 @@ test('prevents student self-assignment and defaults safely on malicious or malfo
     assert.equal(getTrustedRole(payload), 'student');
     assert.equal(isTrustedAdminUser(payload), false);
   }
+});
+
+test('enforces authorized initial admin identity check on email', () => {
+  assert.equal(INITIAL_ADMIN_EMAIL, 'vachannoubade@gmail.com');
+  assert.equal(isAuthorizedInitialAdminEmail('vachannoubade@gmail.com'), true);
+  assert.equal(isAuthorizedInitialAdminEmail('VACHANNOUBADE@GMAIL.COM'), true);
+  assert.equal(isAuthorizedInitialAdminEmail('  vachannoubade@gmail.com  '), true);
+  assert.equal(isAuthorizedInitialAdminEmail('student@sanjayghodawatuniversity.ac.in'), false);
+  assert.equal(isAuthorizedInitialAdminEmail('intruder@gmail.com'), false);
+  assert.equal(isAuthorizedInitialAdminEmail(null), false);
+  assert.equal(isAuthorizedInitialAdminEmail(undefined), false);
+
+  // When email is provided on user object, unauthorized email is rejected even if role claim is forged
+  const authorizedAdmin = {
+    email: 'vachannoubade@gmail.com',
+    app_metadata: { role: 'admin' }
+  };
+  assert.equal(isTrustedAdminUser(authorizedAdmin), true);
+
+  const unauthorizedWithAdminRole = {
+    email: 'hacker@example.com',
+    app_metadata: { role: 'admin' }
+  };
+  assert.equal(isTrustedAdminUser(unauthorizedWithAdminRole), false);
+});
+
+test('sanitizes internal redirect destinations and blocks open redirect vectors', () => {
+  // Valid internal paths
+  assert.equal(getSafeInternalDestination('/admin'), '/admin');
+  assert.equal(getSafeInternalDestination('/admin/claims?status=pending'), '/admin/claims?status=pending');
+  assert.equal(getSafeInternalDestination('/browse'), '/browse');
+
+  // Open redirect attempts (protocol-relative, domain injection, backslashes, scripts)
+  assert.equal(getSafeInternalDestination('//evil.com'), '/admin');
+  assert.equal(getSafeInternalDestination('//evil.com/admin'), '/admin');
+  assert.equal(getSafeInternalDestination('/\\evil.com'), '/admin');
+  assert.equal(getSafeInternalDestination('https://evil.com'), '/admin');
+  assert.equal(getSafeInternalDestination('http://evil.com/login'), '/admin');
+  assert.equal(getSafeInternalDestination('javascript:alert(1)'), '/admin');
+  assert.equal(getSafeInternalDestination('data:text/html,evil'), '/admin');
+  assert.equal(getSafeInternalDestination(null), '/admin');
+  assert.equal(getSafeInternalDestination(undefined), '/admin');
+  assert.equal(getSafeInternalDestination(''), '/admin');
+
+  // Custom fallback
+  assert.equal(getSafeInternalDestination('//evil.com', '/browse'), '/browse');
 });

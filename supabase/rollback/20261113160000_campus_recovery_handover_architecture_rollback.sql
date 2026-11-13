@@ -77,6 +77,7 @@ DROP FUNCTION IF EXISTS public.withdraw_claim_secure(UUID) CASCADE;
 DROP FUNCTION IF EXISTS public.submit_claim_secure(UUID, TEXT, UUID) CASCADE;
 DROP FUNCTION IF EXISTS public.create_report_secure(TEXT, TEXT, TEXT, TEXT, TEXT, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT) CASCADE;
 DROP FUNCTION IF EXISTS public.check_and_record_rate_limit(TEXT, UUID) CASCADE;
+DROP FUNCTION IF EXISTS public.can_access_admin_portal() CASCADE;
 DROP FUNCTION IF EXISTS public.is_current_user_desk_operator() CASCADE;
 DROP FUNCTION IF EXISTS public.is_caller_active_member() CASCADE;
 

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   AlertCircle,
@@ -13,8 +14,10 @@ import {
   X,
   History,
   Building,
-  Plus
+  Plus,
+  LogOut
 } from 'lucide-react';
+import { useAuth } from '../store/AuthContext';
 import { supabase } from '../lib/supabase';
 import {
   getReportImageSignedUrl,
@@ -126,6 +129,14 @@ const formatDateTime = (value?: string | null): string => {
 };
 
 export const AdminPortal: React.FC = () => {
+  const { user, signOut } = useAuth();
+  const navigate = useNavigate();
+
+  const handleAdminSignOut = async () => {
+    await signOut();
+    navigate('/admin/login', { replace: true });
+  };
+
   const [reports, setReports] = useState<Report[]>([]);
   const [persistedMatches, setPersistedMatches] = useState<Match[]>([]);
   const [claims, setClaims] = useState<Claim[]>([]);
@@ -525,13 +536,39 @@ export const AdminPortal: React.FC = () => {
           </h1>
         </div>
 
-        <button 
-          onClick={refreshRecords}
-          className="btn btn-secondary"
-          style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem' }}
-        >
-          <RefreshCw size={14} /> Refresh Data
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '6px 12px',
+            backgroundColor: '#FFFFFF',
+            border: '1px solid var(--border)',
+            borderRadius: '6px',
+            fontSize: '0.82rem',
+            color: 'var(--text-secondary)'
+          }}>
+            <ShieldCheck size={15} color="var(--primary)" />
+            <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>{user?.email || 'vachannoubade@gmail.com'}</span>
+          </div>
+
+          <button 
+            onClick={refreshRecords}
+            className="btn btn-secondary"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem' }}
+          >
+            <RefreshCw size={14} /> Refresh Data
+          </button>
+
+          <button 
+            onClick={handleAdminSignOut}
+            className="btn btn-secondary"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', color: 'var(--danger)', borderColor: 'rgba(239, 68, 68, 0.25)' }}
+            title="Sign out of administrative console"
+          >
+            <LogOut size={14} /> Sign Out
+          </button>
+        </div>
       </div>
 
       {/* Configurable Campus Helpdesk Indicator Banner */}

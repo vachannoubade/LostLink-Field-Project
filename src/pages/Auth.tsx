@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useAuth } from '../store/AuthContext';
+import { supabase } from '../lib/supabase';
 import { COLLEGE_EMAIL_DOMAIN, COLLEGE_EMAIL_ERROR, isCollegeEmail } from '../lib/collegeEmail';
 import { 
   PackageSearch, Mail, Lock, User, Eye, EyeOff, 
@@ -40,12 +41,16 @@ export const Auth: React.FC<{ defaultMode?: 'login' | 'signup' }> = ({ defaultMo
     isConfigured, 
     isAuthenticated, 
     isPasswordRecovery, 
-    loading 
+    loading,
+    session,
+    signOut
   } = useAuth();
 
   const navigate = useNavigate();
   const rawRedirectTo = searchParams.get('redirectTo') || '/';
   const redirectTo = (!rawRedirectTo || rawRedirectTo.startsWith('/login') || rawRedirectTo.startsWith('/signup') || rawRedirectTo.startsWith('/auth')) ? '/' : rawRedirectTo;
+
+  const hasValidRecoverySession = isPasswordRecovery || Boolean(session && searchMode === 'update-password');
 
   // Automatically switch to password recovery mode if detected from URL or Supabase event
   useEffect(() => {
@@ -135,8 +140,8 @@ export const Auth: React.FC<{ defaultMode?: 'login' | 'signup' }> = ({ defaultMo
 
     // Mode-specific validation
     if (mode === 'update-password') {
-      if (password.length < 6) {
-        setErrorMessage('New password must be at least 6 characters long.');
+      if (password.length < 8) {
+        setErrorMessage('New password must be at least 8 characters long.');
         return;
       }
       if (password !== confirmPassword) {
@@ -251,14 +256,40 @@ export const Auth: React.FC<{ defaultMode?: 'login' | 'signup' }> = ({ defaultMo
       }
       // 4. UPDATE PASSWORD (SET NEW PASSWORD FROM RECOVERY LINK)
       else if (mode === 'update-password') {
+        if (password.length < 8) {
+          setErrorMessage('Password must be at least 8 characters long.');
+          setSubmitting(false);
+          return;
+        }
+        if (password !== confirmPassword) {
+          setErrorMessage('Passwords do not match. Please re-enter.');
+          setSubmitting(false);
+          return;
+        }
+
         const { error } = await updatePassword(password);
         if (error) {
           setErrorMessage(error.message);
         } else {
-          setSuccessMessage('Password updated successfully! Redirecting...');
-          setTimeout(() => {
-            navigate(redirectTo);
-          }, 1200);
+          // If destination is /admin, re-verify authoritative server-side administrator authorization
+          if (redirectTo === '/admin') {
+            const { data: serverAuthorized, error: rpcErr } = await supabase?.rpc('can_access_admin_portal') || {};
+            if (rpcErr || !serverAuthorized) {
+              await signOut();
+              setErrorMessage('Access Denied: Password updated, but this account is not authorized for administrative access.');
+              setSubmitting(false);
+              return;
+            }
+            setSuccessMessage('Administrator password updated successfully! Redirecting to Admin Portal...');
+            setTimeout(() => {
+              navigate('/admin', { replace: true });
+            }, 900);
+          } else {
+            setSuccessMessage('Password updated successfully! Redirecting...');
+            setTimeout(() => {
+              navigate(redirectTo, { replace: true });
+            }, 900);
+          }
         }
       }
     } catch (err) {
@@ -514,27 +545,74 @@ export const Auth: React.FC<{ defaultMode?: 'login' | 'signup' }> = ({ defaultMo
           </div>
         )}
 
-        <form onSubmit={handleSubmit}>
-          {/* Full Name (Sign Up only) */}
-          {mode === 'signup' && (
-            <div className="form-group">
-              <label className="form-label" htmlFor="auth-name">Full Name *</label>
-              <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                <User size={18} style={{ position: 'absolute', left: '16px', color: 'var(--text-muted)' }} />
-                <input
-                  id="auth-name"
-                  type="text"
-                  required
-                  placeholder="e.g. Jordan Smith"
-                  className="form-control"
-                  style={{ paddingLeft: '44px' }}
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  disabled={submitting}
-                />
-              </div>
+        {mode === 'update-password' && !hasValidRecoverySession ? (
+          <div style={{ textAlign: 'center', padding: '16px 8px' }}>
+            <div 
+              style={{ 
+                width: '52px', 
+                height: '52px', 
+                borderRadius: '50%', 
+                backgroundColor: 'var(--danger-light)', 
+                color: 'var(--danger)', 
+                display: 'inline-flex', 
+                alignItems: 'center', 
+                justifyContent: 'center',
+                marginBottom: '16px' 
+              }}
+            >
+              <AlertCircle size={26} />
             </div>
-          )}
+            <h3 style={{ fontSize: '1.15rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '8px' }}>
+              Invalid or Expired Link
+            </h3>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', lineHeight: 1.5, marginBottom: '20px' }}>
+              This password setup or recovery link is invalid or has expired. Recovery links can only be used once and expire shortly after delivery.
+            </p>
+            {redirectTo === '/admin' ? (
+              <Link 
+                to="/admin/login" 
+                className="btn btn-primary"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '10px 20px', textDecoration: 'none' }}
+              >
+                Return to Admin Login
+              </Link>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setMode('forgot');
+                  setErrorMessage(null);
+                  setSuccessMessage(null);
+                }}
+                className="btn btn-primary"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '10px 20px' }}
+              >
+                Request Fresh Reset Link
+              </button>
+            )}
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit}>
+            {/* Full Name (Sign Up only) */}
+            {mode === 'signup' && (
+              <div className="form-group">
+                <label className="form-label" htmlFor="auth-name">Full Name *</label>
+                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                  <User size={18} style={{ position: 'absolute', left: '16px', color: 'var(--text-muted)' }} />
+                  <input
+                    id="auth-name"
+                    type="text"
+                    required
+                    placeholder="e.g. Jordan Smith"
+                    className="form-control"
+                    style={{ paddingLeft: '44px' }}
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    disabled={submitting}
+                  />
+                </div>
+              </div>
+            )}
 
           {/* Email (Login, Signup, Forgot) */}
           {mode !== 'update-password' && (
@@ -627,7 +705,7 @@ export const Auth: React.FC<{ defaultMode?: 'login' | 'signup' }> = ({ defaultMo
               <div className="form-group">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
                   <label className="form-label" htmlFor="new-password" style={{ marginBottom: 0 }}>New Password *</label>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Min. 6 characters</span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Min. 8 characters</span>
                 </div>
                 <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
                   <Lock size={18} style={{ position: 'absolute', left: '16px', color: 'var(--text-muted)' }} />
@@ -705,6 +783,7 @@ export const Auth: React.FC<{ defaultMode?: 'login' | 'signup' }> = ({ defaultMo
             )}
           </button>
         </form>
+        )}
 
         {/* Mode Switch Footnote */}
         <div style={{ textAlign: 'center', marginTop: '24px', fontSize: '0.875rem', color: 'var(--text-muted)' }}>

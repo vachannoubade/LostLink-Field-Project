@@ -313,6 +313,35 @@ $$;
 REVOKE ALL ON FUNCTION public.is_current_user_desk_operator() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.is_current_user_desk_operator() TO authenticated;
 
+-- Helper: Dedicated Server-Side Admin Authorization Function
+CREATE OR REPLACE FUNCTION public.can_access_admin_portal()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, auth
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM auth.users u
+    JOIN public.campus_memberships cm ON cm.user_id = u.id
+    WHERE u.id = auth.uid()
+      AND coalesce(u.raw_app_meta_data ->> 'role', '') = 'admin'
+      AND coalesce(auth.jwt() -> 'app_metadata' ->> 'role', '') = 'admin'
+      AND cm.membership_type = 'admin'
+      AND cm.status = 'ACTIVE'
+      AND (cm.expires_at IS NULL OR cm.expires_at > now())
+      AND (
+        lower(u.email) = 'vachannoubade@gmail.com'
+        OR coalesce(cm.notes, '') LIKE '%explicitly_provisioned%'
+        OR u.raw_app_meta_data ? 'admin_provisioned_at'
+      )
+  );
+$$;
+
+REVOKE ALL ON FUNCTION public.can_access_admin_portal() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.can_access_admin_portal() TO authenticated;
+
 -- Hardened storage image access: suspended or revoked users cannot access ANY report images
 CREATE OR REPLACE FUNCTION public.can_access_report_image(object_name text)
 RETURNS boolean

@@ -35,7 +35,7 @@ export interface AuthContextType {
   signUp: (email: string, password: string, name: string) => Promise<SignUpResult>;
   signIn: (email: string, password: string) => Promise<{ error: AuthError | Error | null }>;
   signOut: () => Promise<void>;
-  resetPassword: (email: string) => Promise<{ error: AuthError | Error | null }>;
+  resetPassword: (email: string, redirectToUrl?: string) => Promise<{ error: AuthError | Error | null }>;
   updatePassword: (password: string) => Promise<{ error: AuthError | Error | null }>;
   resendConfirmation: (email: string) => Promise<{ error: AuthError | Error | null }>;
   refreshProfile: () => Promise<void>;
@@ -105,7 +105,17 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       ? currentSession.user.user_metadata.prn
       : (getPrnFromCollegeEmail(userEmail) || undefined);
 
-    const isAdmin = isTrustedAdminUser(currentSession.user);
+    let isAdmin = isTrustedAdminUser(currentSession.user);
+    if (isAdmin && supabase) {
+      try {
+        const { data: serverAuthorized, error: rpcErr } = await supabase.rpc('can_access_admin_portal');
+        if (!rpcErr && typeof serverAuthorized === 'boolean') {
+          isAdmin = serverAuthorized;
+        }
+      } catch {
+        // Fallback to client-side trusted admin evaluation if offline or mocking
+      }
+    }
 
     return {
       id: userId,
@@ -272,14 +282,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  const resetPassword = async (email: string): Promise<{ error: AuthError | Error | null }> => {
+  const resetPassword = async (email: string, redirectToUrl?: string): Promise<{ error: AuthError | Error | null }> => {
     if (!supabase) {
       return { error: new Error('Supabase configuration missing: VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY must be configured in .env.local.') };
     }
 
     try {
       const normalizedEmail = email.trim().toLowerCase();
-      const redirectUrl = `${window.location.origin}/auth?mode=update-password`;
+      const redirectUrl = redirectToUrl || `${window.location.origin}/auth?mode=update-password`;
       const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
         redirectTo: redirectUrl
       });
