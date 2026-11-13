@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateSupabaseUrl } from '../config/supabaseUrl.ts';
+import { validateSupabaseUrl, isPrivilegedCredential } from '../config/supabaseUrl.ts';
 
 const validHttpsUrl = 'https://demo-project.supabase.co';
 
@@ -186,4 +186,23 @@ test('rejects non-Supabase hostnames', () => {
   if (!result.valid) {
     assert.match(result.error, /supabase\.co/i);
   }
+});
+
+test('detects and blocks privileged service-role credentials and database passwords', () => {
+  assert.equal(isPrivilegedCredential('sb_secret_abcdef123456'), true);
+  assert.equal(isPrivilegedCredential('sbp_test_token_123'), true);
+  assert.equal(isPrivilegedCredential('postgresql://postgres:password123@db.supabase.co:5432/postgres'), true);
+  assert.equal(isPrivilegedCredential('postgres://postgres:password123@db.supabase.co:5432/postgres'), true);
+
+  // JWT with service_role
+  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+  const serviceRolePayload = Buffer.from(JSON.stringify({ role: 'service_role' })).toString('base64url');
+  const anonPayload = Buffer.from(JSON.stringify({ role: 'anon' })).toString('base64url');
+  const dummySignature = 'sig12345';
+
+  assert.equal(isPrivilegedCredential(`${header}.${serviceRolePayload}.${dummySignature}`), true);
+  assert.equal(isPrivilegedCredential(`${header}.${anonPayload}.${dummySignature}`), false);
+  assert.equal(isPrivilegedCredential('sbp-anon-key-placeholder'), false);
+  assert.equal(isPrivilegedCredential(''), false);
+  assert.equal(isPrivilegedCredential(undefined), false);
 });

@@ -12,13 +12,14 @@ This runbook covers `supabase/migrations/20261113120000_stage_ready_access_harde
 - Report images are private and follow these visibility rules:
   - Normal image on an active report, stored under the report owner's folder: any authenticated campus member.
   - Normal image path that does not match the attached report owner's folder: owner or administrator only.
-  - Sensitive image (`{userId}/sensitive/...`): owner or administrator only.
-  - Normal image on a resolved report: owner or administrator only.
+  - Sensitive image (`{userId}/sensitive/...`): owner or administrator only while active.
+  - Images attached to a resolved report: administrator only. Students (including the original reporter) cannot access images of resolved reports.
   - Unattached image: owner or administrator only.
 - Restrictive policies prevent stale permissive policies from re-opening resolved reports or sensitive images.
+- Unnecessary anonymous EXECUTE privileges on SECURITY DEFINER functions are revoked.
 - Administrators get read access to persisted match records.
 - The `report-images` bucket and its full write policy set are declared in this migration, so it does not depend on the historical storage migration file.
-- New signups must use a `@sguk.ac.in` college email address unless they are provisioned with trusted `app_metadata.role = "admin"`.
+- New signups must use a `@sguk.ac.in` college email address matching numeric PRN format (e.g. `242631003@sguk.ac.in`) unless they are provisioned with trusted `app_metadata.role = "admin"`.
 
 No reports, profiles, matches, or images are deleted.
 
@@ -167,6 +168,27 @@ WHERE email = '<administrator-college-email>';
 
 The account must sign out and sign in again. Existing sessions can remain valid until their token is refreshed.
 
+### Existing account deactivation and reactivation
+
+To deactivate a student or staff account immediately:
+
+```sql
+-- Standard Supabase Auth ban (rejects authentication and invalidates active JWT tokens)
+UPDATE auth.users
+SET banned_until = 'infinity'
+WHERE email = '<user-email>';
+```
+
+To reactivate a previously deactivated account:
+
+```sql
+UPDATE auth.users
+SET banned_until = NULL
+WHERE email = '<user-email>';
+```
+
+If an account is permanently removed from `auth.users`, all linked profile rows, reports, verifications, and notifications cascade automatically (`ON DELETE CASCADE`), ensuring clean state without orphaned records. Institutional enrollment verification APIs are not required.
+
 ---
 
 ## 5. Staging verification
@@ -277,8 +299,8 @@ Run these checks in separate browser profiles or incognito sessions.
 | Normal active report image | Yes | Yes | Yes |
 | Other student's sensitive image | No | No | Yes |
 | Own sensitive image | Yes | Yes | Yes |
-| Resolved report image (non-owner) | No | No | Yes |
-| Sensitive image after resolution | Owner only | Owner only | Yes |
+| Resolved report image (any student) | No | No | Yes |
+| Sensitive image after resolution (any student) | No | No | Yes |
 | Search, tabs, detail drawer | N/A | N/A | Works |
 | Mutating controls in portal | N/A | N/A | None |
 

@@ -1,9 +1,9 @@
 export const COLLEGE_EMAIL_DOMAIN = 'sguk.ac.in';
 
 export const COLLEGE_EMAIL_ERROR =
-  `Use your college email in the format yourPRNnumber@${COLLEGE_EMAIL_DOMAIN}.`;
+  `Use your college email in the format yourPRNnumber@${COLLEGE_EMAIL_DOMAIN} (e.g. 242631003@${COLLEGE_EMAIL_DOMAIN}).`;
 
-const PRN_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$/;
+const PRN_PATTERN = /^[0-9]{6,16}$/;
 
 export const normalizeCollegeEmail = (email: string): string => email.trim().toLowerCase();
 

@@ -210,8 +210,8 @@ GRANT SELECT ON storage.objects TO anon;
 
 const seedSql = `
 INSERT INTO auth.users (id, email, raw_user_meta_data, raw_app_meta_data) VALUES
-  ('${STUDENT_A}', 'student.a@sguk.ac.in', '{"name":"Student A"}'::jsonb, '{}'::jsonb),
-  ('${STUDENT_B}', 'student.b@sguk.ac.in', '{"name":"Student B"}'::jsonb, '{}'::jsonb),
+  ('${STUDENT_A}', '242631001@sguk.ac.in', '{"name":"Student A"}'::jsonb, '{}'::jsonb),
+  ('${STUDENT_B}', '242631002@sguk.ac.in', '{"name":"Student B"}'::jsonb, '{}'::jsonb),
   ('${ADMIN_ID}', 'admin@campus.example', '{"name":"Campus Admin"}'::jsonb, '{"role":"admin"}'::jsonb);
 
 INSERT INTO public.profiles (id, name) VALUES
@@ -365,7 +365,6 @@ test('resolved reports are invisible to students and visible to admins', async (
 test('sensitive and archived images follow owner/admin rules', async () => {
   assert.deepEqual(await visibleObjectNames(STUDENT_A), [
     A_NORMAL_ACTIVE,
-    A_NORMAL_RESOLVED,
     A_ORPHAN,
     A_OTHER_FOLDER,
     A_SENSITIVE_ACTIVE,
@@ -378,7 +377,6 @@ test('sensitive and archived images follow owner/admin rules', async () => {
     B_NORMAL_ACTIVE,
     B_ORPHAN,
     B_SENSITIVE_ACTIVE,
-    B_SENSITIVE_RESOLVED,
     ADMIN_NORMAL_ACTIVE
   ]);
 
@@ -403,7 +401,6 @@ test('sensitive and archived images follow owner/admin rules', async () => {
       );
       assert.deepEqual(result.rows.map(row => row.name), [
         A_NORMAL_ACTIVE,
-        A_NORMAL_RESOLVED,
         A_ORPHAN,
         A_OTHER_FOLDER,
         A_SENSITIVE_ACTIVE,
@@ -516,6 +513,21 @@ test('only app_metadata role=admin grants the server-side admin claim', async ()
       );
     })
   );
+
+  // Anonymous role cannot execute security definer functions
+  await assert.rejects(
+    withRole(null, async () => {
+      await database.query('SELECT public.is_current_user_admin()');
+    }),
+    /permission denied/i
+  );
+
+  await assert.rejects(
+    withRole(null, async () => {
+      await database.query("SELECT public.can_access_report_image('test')");
+    }),
+    /permission denied/i
+  );
 });
 
 test('college email enforcement applies to new accounts without ejecting existing users', async () => {
@@ -539,9 +551,29 @@ test('college email enforcement applies to new accounts without ejecting existin
 
   await database.exec('BEGIN');
   try {
+    await assert.rejects(
+      database.query(
+        `INSERT INTO auth.users (id, email)
+         VALUES (gen_random_uuid(), 'student@gmail.com')`
+      )
+    );
+
+    // Reject non-numeric PRN
+    await assert.rejects(
+      database.query(
+        `INSERT INTO auth.users (id, email)
+         VALUES (gen_random_uuid(), '22CS1042@sguk.ac.in')`
+      )
+    );
+  } finally {
+    await database.exec('ROLLBACK');
+  }
+
+  await database.exec('BEGIN');
+  try {
     await database.query(
       `INSERT INTO auth.users (id, email, raw_user_meta_data)
-       VALUES ($1, '  22CS1042@SGUK.AC.IN ', '"not-an-object"'::jsonb)`,
+       VALUES ($1, '  242631003@SGUK.AC.IN ', '"not-an-object"'::jsonb)`,
       [NEW_USER_ID]
     );
 
@@ -550,8 +582,8 @@ test('college email enforcement applies to new accounts without ejecting existin
       [NEW_USER_ID]
     );
 
-    assert.equal(created.rows[0].email, '22cs1042@sguk.ac.in');
-    assert.equal(created.rows[0].prn, '22cs1042');
+    assert.equal(created.rows[0].email, '242631003@sguk.ac.in');
+    assert.equal(created.rows[0].prn, '242631003');
 
     await database.query(
       `INSERT INTO auth.users (id, email, raw_app_meta_data)

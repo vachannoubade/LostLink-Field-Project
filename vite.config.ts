@@ -2,26 +2,9 @@ import react from '@vitejs/plugin-react'
 import { defineConfig, loadEnv } from 'vite'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { validateSupabaseUrl } from './config/supabaseUrl.ts'
+import { validateSupabaseUrl, isPrivilegedCredential } from './config/supabaseUrl.ts'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-
-const isServiceRoleKey = (key: string | undefined): boolean => {
-  if (!key) return false
-  if (key.startsWith('sb_secret_')) return true
-
-  const parts = key.split('.')
-  if (parts.length !== 3) return false
-
-  try {
-    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')) as {
-      role?: unknown
-    }
-    return payload.role === 'service_role' || payload.role === 'supabase_service_role'
-  } catch {
-    return false
-  }
-}
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
@@ -46,11 +29,13 @@ export default defineConfig(({ mode }) => {
   const supabaseAnonKey = env.VITE_SUPABASE_ANON_KEY?.trim()
   const supabasePublishableKey = env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim()
 
-  if (isServiceRoleKey(supabaseAnonKey) || isServiceRoleKey(supabasePublishableKey)) {
-    throw new Error(
-      '[LostLink] Refusing to build with a Supabase service-role or secret key in a public VITE_ variable. ' +
-        'Use only the anon or publishable key in the browser.'
-    )
+  for (const [key, value] of Object.entries(env)) {
+    if (isPrivilegedCredential(value)) {
+      throw new Error(
+        `[LostLink] Refusing to build: privileged credential detected in environment variable "${key}". ` +
+          'Never expose service-role keys, database passwords, or secret tokens to the client build.'
+      )
+    }
   }
 
   const define: Record<string, string> = {}
@@ -68,6 +53,9 @@ export default defineConfig(({ mode }) => {
     plugins: [react()],
     envDir: __dirname,
     envPrefix: [],
+    build: {
+      sourcemap: false
+    },
     define
   }
 })

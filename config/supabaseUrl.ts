@@ -133,3 +133,29 @@ export const validateSupabaseUrl = (
 
   return { valid: true, url: parsed.origin }
 }
+
+export const isPrivilegedCredential = (value: string | undefined): boolean => {
+  if (!value) return false
+  const trimmed = value.trim()
+  if (trimmed.startsWith('sb_secret_') || trimmed.startsWith('sbp_')) return true
+  if (/^postgres(ql)?:\/\//i.test(trimmed)) return true
+
+  const parts = trimmed.split('.')
+  if (parts.length === 3) {
+    try {
+      const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')) as {
+        role?: unknown
+      }
+      if (
+        payload.role === 'service_role' ||
+        payload.role === 'supabase_service_role' ||
+        payload.role === 'postgres'
+      ) {
+        return true
+      }
+    } catch {
+      // not a valid base64url JWT payload
+    }
+  }
+  return false
+}

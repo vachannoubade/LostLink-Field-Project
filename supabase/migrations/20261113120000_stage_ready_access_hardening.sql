@@ -114,16 +114,19 @@ BEGIN
   v_is_admin := public.is_current_user_admin();
   v_folder := storage.foldername(object_name);
 
-  IF coalesce(v_folder[2], '') = 'sensitive' THEN
-    RETURN v_is_admin OR coalesce(v_folder[1], '') = v_uid::text;
-  END IF;
-
+  -- 1. Attached to a resolved report: administrator only. Students (including the owner)
+  -- must never access images of resolved reports.
   IF EXISTS (
     SELECT 1
     FROM public.reports r
     WHERE r.image_url = object_name
       AND r.status = 'resolved'
   ) THEN
+    RETURN v_is_admin;
+  END IF;
+
+  -- 2. Sensitive images: owner or administrator only, regardless of report status.
+  IF coalesce(v_folder[2], '') = 'sensitive' THEN
     RETURN v_is_admin OR coalesce(v_folder[1], '') = v_uid::text;
   END IF;
 
@@ -326,7 +329,7 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  IF normalized_email !~ '^[a-z0-9][a-z0-9._-]{2,63}@sguk\.ac\.in$' THEN
+  IF normalized_email !~ '^[0-9]{6,16}@sguk\.ac\.in$' THEN
     RAISE EXCEPTION 'Only college email addresses in the format yourPRNnumber@sguk.ac.in can create an account';
   END IF;
 
@@ -352,3 +355,66 @@ CREATE TRIGGER enforce_college_email_domain
   FOR EACH ROW EXECUTE FUNCTION public.enforce_college_email_domain();
 
 REVOKE EXECUTE ON FUNCTION public.enforce_college_email_domain() FROM PUBLIC;
+
+-- -----------------------------------------------------------------------------
+-- 7. Restrict unnecessary anonymous execution of SECURITY DEFINER functions
+-- -----------------------------------------------------------------------------
+-- Prevent unauthenticated invocation of internal functions and RPCs while
+-- preserving legitimate authenticated workflows and database triggers.
+DO $$
+BEGIN
+  -- Internal triggers: no direct client execution
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'handle_new_user' AND pronamespace = 'public'::regnamespace) THEN
+    EXECUTE 'REVOKE ALL ON FUNCTION public.handle_new_user() FROM PUBLIC';
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'handle_report_update' AND pronamespace = 'public'::regnamespace) THEN
+    EXECUTE 'REVOKE ALL ON FUNCTION public.handle_report_update() FROM PUBLIC';
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'handle_report_resolved' AND pronamespace = 'public'::regnamespace) THEN
+    EXECUTE 'REVOKE ALL ON FUNCTION public.handle_report_resolved() FROM PUBLIC';
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'enforce_college_email_domain' AND pronamespace = 'public'::regnamespace) THEN
+    EXECUTE 'REVOKE ALL ON FUNCTION public.enforce_college_email_domain() FROM PUBLIC';
+  END IF;
+
+  -- Profile and resolution procedures: authenticated only
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'ensure_profile_exists' AND pronamespace = 'public'::regnamespace) THEN
+    EXECUTE 'REVOKE ALL ON FUNCTION public.ensure_profile_exists() FROM PUBLIC';
+    EXECUTE 'GRANT EXECUTE ON FUNCTION public.ensure_profile_exists() TO authenticated';
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'resolve_report' AND pronamespace = 'public'::regnamespace) THEN
+    EXECUTE 'REVOKE ALL ON FUNCTION public.resolve_report(uuid) FROM PUBLIC';
+    EXECUTE 'GRANT EXECUTE ON FUNCTION public.resolve_report(uuid) TO authenticated';
+  END IF;
+
+  -- Ownership verification procedures: authenticated only
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'set_report_verification_details' AND pronamespace = 'public'::regnamespace) THEN
+    EXECUTE 'REVOKE ALL ON FUNCTION public.set_report_verification_details(uuid, text, text) FROM PUBLIC';
+    EXECUTE 'GRANT EXECUTE ON FUNCTION public.set_report_verification_details(uuid, text, text) TO authenticated';
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'get_owner_verification_details' AND pronamespace = 'public'::regnamespace) THEN
+    EXECUTE 'REVOKE ALL ON FUNCTION public.get_owner_verification_details(uuid) FROM PUBLIC';
+    EXECUTE 'GRANT EXECUTE ON FUNCTION public.get_owner_verification_details(uuid) TO authenticated';
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'verify_ownership' AND pronamespace = 'public'::regnamespace) THEN
+    EXECUTE 'REVOKE ALL ON FUNCTION public.verify_ownership(uuid, text, text) FROM PUBLIC';
+    EXECUTE 'GRANT EXECUTE ON FUNCTION public.verify_ownership(uuid, text, text) TO authenticated';
+  END IF;
+
+  -- Admin helper & storage function: authenticated only
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'is_current_user_admin' AND pronamespace = 'public'::regnamespace) THEN
+    EXECUTE 'REVOKE ALL ON FUNCTION public.is_current_user_admin() FROM PUBLIC';
+    EXECUTE 'GRANT EXECUTE ON FUNCTION public.is_current_user_admin() TO authenticated';
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'can_access_report_image' AND pronamespace = 'public'::regnamespace) THEN
+    EXECUTE 'REVOKE ALL ON FUNCTION public.can_access_report_image(text) FROM PUBLIC';
+    EXECUTE 'GRANT EXECUTE ON FUNCTION public.can_access_report_image(text) TO authenticated';
+  END IF;
+END $$;
