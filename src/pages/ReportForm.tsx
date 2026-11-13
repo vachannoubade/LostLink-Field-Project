@@ -3,10 +3,8 @@ import { useNavigate, useLocation, useParams, useSearchParams } from 'react-rout
 import { useData } from '../store/DataContext';
 import type { Category, CustodyStatus } from '../types';
 import { 
-  CheckCircle, UploadCloud, ArrowLeft, AlertCircle, Loader2, 
-  Lock, Globe, MapPin, Tag, Calendar, ShieldCheck 
+  CheckCircle, UploadCloud, ArrowLeft, AlertCircle, Loader2
 } from 'lucide-react';
-import { motion } from 'framer-motion';
 import { validateImageFile, uploadReportImage, deleteReportImage, isSensitiveImagePath } from '../lib/storage';
 import { CATEGORY_OPTIONS } from '../utils/categoryArt';
 import { SGUK_CAMPUS_ZONES } from '../utils/matching';
@@ -228,10 +226,7 @@ export const ReportForm: React.FC = () => {
 
       // 3. Create new report via secure stored procedure
       setUploadStatus('Submitting report...');
-      
-      let usedRpc = false;
 
-      // Attempt stored procedure first if supabase is available
       if (supabase) {
         const { data: rpcData, error: rpcError } = await supabase.rpc('create_report_secure', {
           p_type: isLost ? 'lost' : 'found',
@@ -249,22 +244,37 @@ export const ReportForm: React.FC = () => {
           p_private_evidence: formData.privateEvidence.trim() || null
         });
 
-        if (!rpcError && rpcData) {
-          usedRpc = true;
-        } else if (rpcError && rpcError.message && !rpcError.message.includes('function') && !rpcError.message.includes('does not exist')) {
-          // Real validation or rate limit error returned by server
+        if (rpcError) {
           if (newlyUploadedPath) {
             await deleteReportImage(newlyUploadedPath).catch(() => {});
           }
-          setSubmitError(rpcError.message);
+          setSubmitError(rpcError.message || 'Failed to submit report via secure campus procedure.');
           setIsSaving(false);
           setUploadStatus(null);
           return;
         }
-      }
 
-      // Fallback to client DataContext addReport if RPC is not present in local test harness
-      if (!usedRpc) {
+        // Add to local state
+        if (rpcData) {
+          await addReport({
+            type: isLost ? 'lost' : 'found',
+            title: formData.title.trim(),
+            category: formData.category,
+            description: formData.description.trim(),
+            location: formData.location.trim(),
+            campusZone: formData.campusZone || undefined,
+            date: formData.date,
+            brandModel: formData.brandModel.trim() || undefined,
+            color: formData.color.trim() || undefined,
+            distinguishingFeatures: formData.distinguishingFeatures.trim() || undefined,
+            custodyStatus: !isLost ? formData.custodyStatus : 'with_finder',
+            privateEvidence: formData.privateEvidence.trim() || undefined,
+            imagePath: newlyUploadedPath || undefined,
+            imageUrl: newlyUploadedPath ? undefined : formData.imageUrl,
+            hasPrivateVerification: Boolean(formData.privateEvidence.trim())
+          });
+        }
+      } else {
         const result = await addReport({
           type: isLost ? 'lost' : 'found',
           title: formData.title.trim(),
@@ -351,21 +361,17 @@ export const ReportForm: React.FC = () => {
 
   if (submitted) {
     return (
-      <motion.div 
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '64px 20px', minHeight: '50vh', textAlign: 'center' }}
-      >
-        <div style={{ width: '64px', height: '64px', borderRadius: '50%', backgroundColor: 'var(--success-light)', color: 'var(--success)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '20px' }}>
-          <CheckCircle size={36} />
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '64px 20px', minHeight: '50vh', textAlign: 'center' }}>
+        <div style={{ width: '56px', height: '56px', borderRadius: '50%', backgroundColor: 'var(--success-light)', color: 'var(--success)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '20px' }}>
+          <CheckCircle size={32} />
         </div>
-        <h2 style={{ fontSize: '1.5rem', marginBottom: '8px', color: 'var(--text-main)' }}>
+        <h2 style={{ fontSize: '1.4rem', marginBottom: '8px', color: 'var(--text-main)', fontWeight: 600 }}>
           {isEdit ? 'Report Updated Successfully' : 'Report Logged in Campus Registry'}
         </h2>
-        <p style={{ color: 'var(--text-muted)', marginBottom: '24px', maxWidth: '440px', fontSize: '0.95rem', lineHeight: 1.5 }}>
+        <p style={{ color: 'var(--text-secondary)', marginBottom: '24px', maxWidth: '440px', fontSize: '0.92rem', lineHeight: 1.5 }}>
           {isEdit 
-            ? 'Your modifications have been committed to the campus records.' 
-            : `Your ${isLost ? 'lost' : 'found'} report is recorded. Algorithmic matching will evaluate candidate items.`}
+            ? 'Your modifications have been committed to campus records.' 
+            : `Your ${isLost ? 'lost' : 'found'} report has been saved. You can track updates under My Items.`}
         </p>
 
         <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', justifyContent: 'center' }}>
@@ -373,7 +379,6 @@ export const ReportForm: React.FC = () => {
             type="button" 
             className="btn btn-primary" 
             onClick={() => navigate('/my-reports')}
-            style={{ padding: '9px 18px', fontSize: '0.9rem' }}
           >
             View in My Reports
           </button>
@@ -381,493 +386,490 @@ export const ReportForm: React.FC = () => {
             type="button" 
             className="btn btn-secondary" 
             onClick={() => navigate('/browse')}
-            style={{ padding: '9px 18px', fontSize: '0.9rem' }}
           >
             Browse Campus Items
           </button>
         </div>
-      </motion.div>
+      </div>
     );
   }
 
   return (
-    <div style={{ maxWidth: '780px', margin: '0 auto', paddingBottom: '48px' }}>
+    <div style={{ maxWidth: '740px', margin: '0 auto', paddingBottom: '48px' }}>
       <button 
         type="button" 
-        className="btn btn-secondary" 
+        className="btn btn-secondary btn-sm" 
         onClick={() => navigate(-1)} 
-        style={{ marginBottom: '20px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem' }}
+        style={{ marginBottom: '16px' }}
       >
-        <ArrowLeft size={16} /> Return to Previous View
+        <ArrowLeft size={15} /> Back
       </button>
 
       {/* Header */}
       <div style={{ marginBottom: '24px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-          <span className="mono-token" style={{ fontSize: '0.75rem', padding: '2px 8px', borderRadius: '4px', backgroundColor: 'var(--primary-light)', color: 'var(--primary)', fontWeight: 600 }}>
-            {isEdit ? 'AMEND REPORT' : (isLost ? 'REPORT LOST ITEM' : 'REPORT FOUND ITEM')}
+          <span className="badge badge-found" style={{ fontSize: '0.78rem' }}>
+            {isEdit ? 'Edit Report' : (isLost ? 'Report Lost Item' : 'Report Found Item')}
           </span>
-          <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>SANJAY GHODAWAT UNIVERSITY</span>
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Sanjay Ghodawat University</span>
         </div>
-        <h1 style={{ fontSize: '1.75rem', fontWeight: 600, color: 'var(--text-main)', margin: '0 0 6px 0', letterSpacing: '-0.01em' }}>
-          {isEdit ? 'Update Campus Incident' : (isLost ? 'Report a Lost Item' : 'Register a Found Item')}
+        <h1 className="page-title">
+          {isEdit ? 'Update item report' : (isLost ? 'Report a lost item' : 'Report a found item')}
         </h1>
-        <p style={{ color: 'var(--text-secondary)', fontSize: '0.92rem', margin: 0, lineHeight: 1.5 }}>
+        <p className="page-subtitle" style={{ marginBottom: 0 }}>
           {isLost 
-            ? 'Provide descriptive attributes and campus location to assist recovery. Matching suggestions will evaluate automatically.' 
-            : 'Thank you for reporting found property. Provide clear observations so genuine owners can verify.'}
+            ? 'Provide details about your missing item and where you last saw it.' 
+            : 'Provide details about the item you discovered to help reconnect it with its owner.'}
         </p>
       </div>
 
-      <div className="card" style={{ padding: '32px', backgroundColor: '#FFFFFF', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
+      <div className="card" style={{ padding: '28px', backgroundColor: 'var(--bg-surface)' }}>
         <form onSubmit={handleSubmit}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
             
-            {/* Title (5-70 chars) with live counter */}
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                <label className="form-label" style={{ fontWeight: 600, fontSize: '0.88rem', margin: 0 }}>
-                  Item Title *
-                </label>
-                <span style={{ 
-                  fontSize: '0.75rem', 
-                  fontFamily: 'var(--font-mono)', 
-                  color: formData.title.length < 5 || formData.title.length > 70 ? 'var(--danger)' : 'var(--text-muted)' 
-                }}>
-                  {formData.title.length} / 70 chars (min 5)
-                </span>
-              </div>
-              <input 
-                type="text" 
-                name="title"
-                required
-                maxLength={70}
-                className="form-control" 
-                placeholder="e.g. Navy Wildcraft Backpack, Space Gray MacBook Air"
-                value={formData.title}
-                onChange={handleChange}
-              />
-            </div>
+            {/* 1. Item Details */}
+            <div style={{ borderBottom: '1px solid var(--border)', paddingBottom: '24px' }}>
+              <h2 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '14px' }}>
+                1. Item details
+              </h2>
 
-            {/* Category Grid */}
-            <div>
-              <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '0.88rem' }}>
-                <Tag size={14} color="var(--primary)" />
-                <span>Category *</span>
-              </label>
+              {/* Title (5-70 chars) */}
+              <div className="form-group">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <label htmlFor="report-title" className="form-label" style={{ margin: 0 }}>
+                    Item Title *
+                  </label>
+                  <span style={{ 
+                    fontSize: '0.74rem', 
+                    color: formData.title.length < 5 || formData.title.length > 70 ? 'var(--danger)' : 'var(--text-tertiary)' 
+                  }}>
+                    {formData.title.length} / 70 chars (min 5)
+                  </span>
+                </div>
+                <input 
+                  id="report-title"
+                  type="text" 
+                  name="title"
+                  required
+                  maxLength={70}
+                  className="form-control" 
+                  placeholder="e.g. Navy Wildcraft Backpack, Space Gray MacBook Air"
+                  value={formData.title}
+                  onChange={handleChange}
+                />
+              </div>
+
+              {/* Category Grid */}
+              <div className="form-group">
+                <label className="form-label">
+                  Category *
+                </label>
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))',
+                  gap: '8px',
+                  marginTop: '4px'
+                }}>
+                  {CATEGORY_OPTIONS.map(opt => {
+                    const isSelected = formData.category === opt.value;
+                    return (
+                      <button
+                        type="button"
+                        key={opt.value}
+                        onClick={() => setFormData(prev => ({ ...prev, category: opt.value }))}
+                        style={{
+                          padding: '8px 10px',
+                          borderRadius: 'var(--radius-sm)',
+                          border: `1px solid ${isSelected ? 'var(--primary)' : 'var(--border)'}`,
+                          backgroundColor: isSelected ? 'var(--primary-light)' : 'var(--bg-surface)',
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          transition: 'var(--transition-fast)'
+                        }}
+                      >
+                        <span style={{ fontSize: '1.1rem' }}>{opt.emoji}</span>
+                        <span style={{ fontSize: '0.84rem', fontWeight: isSelected ? 600 : 500, color: isSelected ? 'var(--primary)' : 'var(--text-main)' }}>
+                          {opt.value}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Attributes (Brand, Color, Distinguishing features) */}
               <div style={{
                 display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
-                gap: '8px',
-                marginTop: '6px'
+                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                gap: '12px',
+                marginTop: '16px'
               }}>
-                {CATEGORY_OPTIONS.map(opt => {
-                  const isSelected = formData.category === opt.value;
-                  return (
-                    <button
-                      type="button"
-                      key={opt.value}
-                      onClick={() => setFormData(prev => ({ ...prev, category: opt.value }))}
-                      style={{
-                        padding: '10px 12px',
-                        borderRadius: '6px',
-                        border: `1.5px solid ${isSelected ? 'var(--primary)' : 'var(--border)'}`,
-                        backgroundColor: isSelected ? 'var(--primary-light)' : '#FFFFFF',
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px'
-                      }}
-                    >
-                      <span style={{ fontSize: '1.1rem' }}>{opt.emoji}</span>
-                      <span style={{ fontSize: '0.85rem', fontWeight: isSelected ? 650 : 500, color: isSelected ? 'var(--primary)' : 'var(--text-main)' }}>
-                        {opt.value}
-                      </span>
-                    </button>
-                  );
-                })}
+                <div>
+                  <label className="form-label" style={{ fontSize: '0.82rem' }}>Brand / Model</label>
+                  <input 
+                    type="text" 
+                    name="brandModel"
+                    maxLength={100}
+                    className="form-control" 
+                    placeholder="e.g. Apple iPhone 13, Wildcraft"
+                    value={formData.brandModel}
+                    onChange={handleChange}
+                  />
+                </div>
+
+                <div>
+                  <label className="form-label" style={{ fontSize: '0.82rem' }}>Primary Color</label>
+                  <input 
+                    type="text" 
+                    name="color"
+                    maxLength={50}
+                    className="form-control" 
+                    placeholder="e.g. Space Gray, Navy Blue"
+                    value={formData.color}
+                    onChange={handleChange}
+                  />
+                </div>
+
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label className="form-label" style={{ fontSize: '0.82rem' }}>Public Distinguishing Features (Optional)</label>
+                  <input 
+                    type="text" 
+                    name="distinguishingFeatures"
+                    maxLength={200}
+                    className="form-control" 
+                    placeholder="e.g. Small scratch near charger port, national park keychain on zipper"
+                    value={formData.distinguishingFeatures}
+                    onChange={handleChange}
+                  />
+                </div>
               </div>
             </div>
 
-            {/* Structured Item Attributes (Brand/Model, Color, Distinguishing Features) */}
-            <div style={{ 
-              display: 'grid', 
-              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
-              gap: '16px',
-              padding: '16px',
-              backgroundColor: 'var(--bg-color)',
-              borderRadius: 'var(--radius-sm)',
-              border: '1px solid var(--border)'
-            }}>
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                  <label className="form-label" style={{ fontSize: '0.82rem', margin: 0 }}>Brand / Model</label>
-                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{formData.brandModel.length}/100</span>
+            {/* 2. Location and Date */}
+            <div style={{ borderBottom: '1px solid var(--border)', paddingBottom: '24px' }}>
+              <h2 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '14px' }}>
+                2. Location and date
+              </h2>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px', marginBottom: '14px' }}>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">
+                    Date {isLost ? 'Lost' : 'Found'} *
+                  </label>
+                  <input 
+                    type="date" 
+                    name="date"
+                    required
+                    className="form-control" 
+                    value={formData.date}
+                    onChange={handleChange}
+                  />
+                </div>
+
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">
+                    Campus Zone *
+                  </label>
+                  <select
+                    name="campusZone"
+                    required
+                    className="form-select"
+                    value={formData.campusZone}
+                    onChange={handleChange}
+                  >
+                    <option value="">Select SGUK Campus Zone...</option>
+                    {SGUK_CAMPUS_ZONES.map((zone: string) => (
+                      <option key={zone} value={zone}>{zone}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Quick Pick Zone Pills */}
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '14px' }}>
+                {SGUK_CAMPUS_ZONES.slice(0, 6).map((zone: string) => (
+                  <button
+                    key={zone}
+                    type="button"
+                    onClick={() => handleSelectZone(zone)}
+                    style={{
+                      padding: '4px 8px',
+                      borderRadius: 'var(--radius-xs)',
+                      fontSize: '0.74rem',
+                      fontWeight: 500,
+                      backgroundColor: formData.campusZone === zone ? 'var(--primary)' : 'var(--bg-secondary)',
+                      color: formData.campusZone === zone ? '#FFFFFF' : 'var(--text-secondary)',
+                      border: `1px solid ${formData.campusZone === zone ? 'var(--primary)' : 'var(--border)'}`,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {zone}
+                  </button>
+                ))}
+              </div>
+
+              {/* Specific Location Details */}
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <label className="form-label" style={{ margin: 0 }}>
+                    Specific Location Details *
+                  </label>
+                  <span style={{ fontSize: '0.74rem', color: formData.location.length > 100 ? 'var(--danger)' : 'var(--text-tertiary)' }}>
+                    {formData.location.length} / 100 chars
+                  </span>
                 </div>
                 <input 
                   type="text" 
-                  name="brandModel"
+                  name="location"
+                  required
                   maxLength={100}
                   className="form-control" 
-                  placeholder="e.g. Apple iPhone 13, Wildcraft"
-                  value={formData.brandModel}
+                  placeholder="e.g. 2nd floor library silent study area, desk 14 near north window"
+                  value={formData.location}
                   onChange={handleChange}
-                  style={{ backgroundColor: '#FFFFFF', fontSize: '0.88rem' }}
-                />
-              </div>
-
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                  <label className="form-label" style={{ fontSize: '0.82rem', margin: 0 }}>Primary Color</label>
-                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{formData.color.length}/50</span>
-                </div>
-                <input 
-                  type="text" 
-                  name="color"
-                  maxLength={50}
-                  className="form-control" 
-                  placeholder="e.g. Space Gray, Navy Blue"
-                  value={formData.color}
-                  onChange={handleChange}
-                  style={{ backgroundColor: '#FFFFFF', fontSize: '0.88rem' }}
-                />
-              </div>
-
-              <div style={{ gridColumn: '1 / -1' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                  <label className="form-label" style={{ fontSize: '0.82rem', margin: 0 }}>Distinguishing Features (Public)</label>
-                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{formData.distinguishingFeatures.length}/200</span>
-                </div>
-                <input 
-                  type="text" 
-                  name="distinguishingFeatures"
-                  maxLength={200}
-                  className="form-control" 
-                  placeholder="e.g. Small scratch near charger port, national park badge on strap"
-                  value={formData.distinguishingFeatures}
-                  onChange={handleChange}
-                  style={{ backgroundColor: '#FFFFFF', fontSize: '0.88rem' }}
                 />
               </div>
             </div>
 
-            {/* Date & Campus Zone Grid */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
-              <div>
-                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '0.88rem' }}>
-                  <Calendar size={14} color="var(--primary)" />
-                  <span>Date {isLost ? 'Lost' : 'Found'} *</span>
-                </label>
-                <input 
-                  type="date" 
-                  name="date"
+            {/* 3. Description and Photo */}
+            <div style={{ borderBottom: '1px solid var(--border)', paddingBottom: '24px' }}>
+              <h2 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '14px' }}>
+                3. Description and photo
+              </h2>
+
+              {/* Description */}
+              <div className="form-group">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <label className="form-label" style={{ margin: 0 }}>
+                    Description *
+                  </label>
+                  <div style={{ display: 'flex', gap: '10px', fontSize: '0.74rem' }}>
+                    <span style={{ color: wordCount > 100 ? 'var(--danger)' : 'var(--text-tertiary)' }}>
+                      {wordCount} / 100 words
+                    </span>
+                    <span style={{ color: formData.description.length > 700 ? 'var(--danger)' : 'var(--text-tertiary)' }}>
+                      {formData.description.length} / 700 chars
+                    </span>
+                  </div>
+                </div>
+                <textarea 
+                  name="description"
                   required
+                  maxLength={700}
+                  rows={3}
                   className="form-control" 
-                  value={formData.date}
+                  placeholder="Provide helpful visual description and context..."
+                  value={formData.description}
                   onChange={handleChange}
                 />
               </div>
 
-              <div>
-                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '0.88rem' }}>
-                  <MapPin size={14} color="var(--primary)" />
-                  <span>Campus Zone *</span>
-                </label>
-                <select
-                  name="campusZone"
-                  required
-                  className="form-control"
-                  value={formData.campusZone}
-                  onChange={handleChange}
-                >
-                  <option value="">Select SGUK Campus Zone...</option>
-                  {SGUK_CAMPUS_ZONES.map((zone: string) => (
-                    <option key={zone} value={zone}>{zone}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {/* Quick-Pick Zone Badges */}
-            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '-10px' }}>
-              {SGUK_CAMPUS_ZONES.slice(0, 6).map((zone: string) => (
-                <button
-                  key={zone}
-                  type="button"
-                  onClick={() => handleSelectZone(zone)}
-                  style={{
-                    padding: '4px 8px',
-                    borderRadius: '4px',
-                    fontSize: '0.74rem',
-                    fontWeight: 500,
-                    backgroundColor: formData.campusZone === zone ? 'var(--primary)' : 'var(--bg-color)',
-                    color: formData.campusZone === zone ? '#FFFFFF' : 'var(--text-secondary)',
-                    border: `1px solid ${formData.campusZone === zone ? 'var(--primary)' : 'var(--border)'}`,
-                    cursor: 'pointer'
-                  }}
-                >
-                  {zone}
-                </button>
-              ))}
-            </div>
-
-            {/* Specific Location (max 100 chars) with live counter */}
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                <label className="form-label" style={{ fontWeight: 600, fontSize: '0.88rem', margin: 0 }}>
-                  Specific Location *
-                </label>
-                <span style={{ 
-                  fontSize: '0.75rem', 
-                  fontFamily: 'var(--font-mono)', 
-                  color: formData.location.length > 100 ? 'var(--danger)' : 'var(--text-muted)' 
+              {/* Custody status for Found items */}
+              {!isLost && (
+                <div className="form-group" style={{
+                  padding: '14px',
+                  backgroundColor: 'var(--bg-secondary)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-sm)'
                 }}>
-                  {formData.location.length} / 100 chars
-                </span>
-              </div>
-              <input 
-                type="text" 
-                name="location"
-                required
-                maxLength={100}
-                className="form-control" 
-                placeholder="e.g. 2nd floor silent reading room, desk 14 near north window"
-                value={formData.location}
-                onChange={handleChange}
-              />
-            </div>
+                  <label className="form-label" style={{ fontWeight: 600, marginBottom: '6px' }}>
+                    Current Item Custody *
+                  </label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.86rem' }}>
+                      <input 
+                        type="radio" 
+                        name="custodyStatus" 
+                        value="with_finder"
+                        checked={formData.custodyStatus === 'with_finder'}
+                        onChange={handleChange}
+                      />
+                      <span><strong>With finder</strong> — I am holding the item until owner is verified</span>
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.86rem' }}>
+                      <input 
+                        type="radio" 
+                        name="custodyStatus" 
+                        value="handed_to_desk"
+                        checked={formData.custodyStatus === 'handed_to_desk'}
+                        onChange={handleChange}
+                      />
+                      <span><strong>Handed to helpdesk</strong> — Deposited at campus helpdesk / security</span>
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.86rem' }}>
+                      <input 
+                        type="radio" 
+                        name="custodyStatus" 
+                        value="only_observed"
+                        checked={formData.custodyStatus === 'only_observed'}
+                        onChange={handleChange}
+                      />
+                      <span><strong>Observed only</strong> — Saw it at the location and left it in place</span>
+                    </label>
+                  </div>
+                </div>
+              )}
 
-            {/* Description (max 700 chars and max 100 words) with live counters */}
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                <label className="form-label" style={{ fontWeight: 600, fontSize: '0.88rem', margin: 0 }}>
-                  Description *
+              {/* Photo Upload Container */}
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">
+                  Photo (Optional, max 5 MB)
                 </label>
-                <div style={{ display: 'flex', gap: '12px', fontSize: '0.75rem', fontFamily: 'var(--font-mono)' }}>
-                  <span style={{ color: wordCount > 100 ? 'var(--danger)' : 'var(--text-muted)' }}>
-                    {wordCount} / 100 words
-                  </span>
-                  <span style={{ color: formData.description.length > 700 ? 'var(--danger)' : 'var(--text-muted)' }}>
-                    {formData.description.length} / 700 chars
-                  </span>
-                </div>
-              </div>
-              <textarea 
-                name="description"
-                required
-                maxLength={700}
-                rows={3}
-                className="form-control" 
-                placeholder="Provide accurate visual details and context..."
-                value={formData.description}
-                onChange={handleChange}
-              />
-            </div>
-
-            {/* For Found Items: Current Custody Status */}
-            {!isLost && (
-              <div style={{
-                padding: '16px',
-                backgroundColor: 'var(--bg-color)',
-                border: '1px solid var(--border)',
-                borderRadius: 'var(--radius-sm)'
-              }}>
-                <label className="form-label" style={{ fontWeight: 600, fontSize: '0.88rem', marginBottom: '8px' }}>
-                  Where is the item currently? *
-                </label>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.88rem' }}>
-                    <input 
-                      type="radio" 
-                      name="custodyStatus" 
-                      value="with_finder"
-                      checked={formData.custodyStatus === 'with_finder'}
-                      onChange={handleChange}
-                    />
-                    <span><strong>With me</strong> — I am physically holding this item until claimed</span>
-                  </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.88rem' }}>
-                    <input 
-                      type="radio" 
-                      name="custodyStatus" 
-                      value="handed_to_desk"
-                      checked={formData.custodyStatus === 'handed_to_desk'}
-                      onChange={handleChange}
-                    />
-                    <span><strong>Handed to campus helpdesk</strong> — I deposited it at a campus helpdesk</span>
-                  </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.88rem' }}>
-                    <input 
-                      type="radio" 
-                      name="custodyStatus" 
-                      value="only_observed"
-                      checked={formData.custodyStatus === 'only_observed'}
-                      onChange={handleChange}
-                    />
-                    <span><strong>Only observed</strong> — I saw it at the location and left it in place</span>
-                  </label>
-                </div>
-              </div>
-            )}
-
-            {/* Optional Private Identifying Details (Replacing confusing PIN) */}
-            <div style={{
-              padding: '18px',
-              backgroundColor: '#FFFFFF',
-              border: '1px solid var(--border)',
-              borderRadius: 'var(--radius-sm)'
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '4px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <ShieldCheck size={16} color="var(--primary)" />
-                  <span style={{ fontWeight: 600, fontSize: '0.88rem', color: 'var(--text-main)' }}>
-                    Private Identifying Details (Optional)
-                  </span>
-                </div>
-                <span style={{ 
-                  fontSize: '0.74rem', 
-                  fontFamily: 'var(--font-mono)', 
-                  color: formData.privateEvidence.length > 300 ? 'var(--danger)' : 'var(--text-muted)' 
+                <div style={{ 
+                  border: '1px dashed var(--border)', 
+                  borderRadius: 'var(--radius-sm)', 
+                  padding: '18px', 
+                  textAlign: 'center', 
+                  backgroundColor: 'var(--bg-color)' 
                 }}>
+                  {formData.imageUrl ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+                      <div style={{ width: '100%', maxWidth: '240px', height: '150px', borderRadius: 'var(--radius-xs)', overflow: 'hidden', border: '1px solid var(--border)' }}>
+                        <img src={formData.imageUrl} alt="Item Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {selectedFile ? (
+                          <span style={{ fontSize: '0.78rem', padding: '3px 8px', backgroundColor: 'var(--primary-light)', color: 'var(--primary)', borderRadius: '4px', fontWeight: 500 }}>
+                            Ready to upload ({(selectedFile.size / (1024 * 1024)).toFixed(2)} MB)
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: '0.78rem', padding: '3px 8px', backgroundColor: 'var(--primary-light)', color: 'var(--primary)', borderRadius: '4px', fontWeight: 500 }}>
+                            Current photo
+                          </span>
+                        )}
+                        <button type="button" className="btn btn-secondary btn-sm" onClick={handleRemoveImage} disabled={isSaving}>
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
+                      <UploadCloud size={24} color="var(--primary)" />
+                      <div style={{ fontSize: '0.86rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                        Upload item photo
+                      </div>
+                      <p style={{ color: 'var(--text-secondary)', fontSize: '0.78rem', margin: 0 }}>
+                        JPG, PNG, or WebP under 5 MB.
+                      </p>
+                      
+                      <input 
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        ref={fileInputRef}
+                        onChange={handleImageUpload}
+                        disabled={isSaving}
+                        style={{ display: 'none' }}
+                      />
+                      <button 
+                        type="button" 
+                        className="btn btn-secondary btn-sm" 
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isSaving}
+                        style={{ marginTop: '6px' }}
+                      >
+                        Choose file
+                      </button>
+                      
+                      {imageError && (
+                        <div style={{ color: 'var(--danger)', fontSize: '0.8rem', marginTop: '4px' }}>
+                          {imageError}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {(!existingReport?.imagePath || selectedFile) && (
+                  <label style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: '8px',
+                    marginTop: '8px',
+                    cursor: isSaving ? 'not-allowed' : 'pointer',
+                    fontSize: '0.82rem',
+                    color: 'var(--text-secondary)'
+                  }}>
+                    <input
+                      type="checkbox"
+                      checked={isSensitiveImage}
+                      onChange={(e) => setIsSensitiveImage(e.target.checked)}
+                      disabled={isSaving}
+                      style={{ marginTop: '2px' }}
+                    />
+                    <span>
+                      <strong>Sensitive image</strong> — Check if photo contains personal identity, PRN card or private documents (hidden from public browsing).
+                    </span>
+                  </label>
+                )}
+              </div>
+            </div>
+
+            {/* 4. Optional Private Details */}
+            <div style={{ borderBottom: '1px solid var(--border)', paddingBottom: '24px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
+                <h2 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-main)', margin: 0 }}>
+                  4. Optional private details
+                </h2>
+                <span style={{ fontSize: '0.74rem', color: formData.privateEvidence.length > 300 ? 'var(--danger)' : 'var(--text-tertiary)' }}>
                   {formData.privateEvidence.length} / 300 chars
                 </span>
               </div>
-              <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0 0 8px 0', lineHeight: 1.4 }}>
-                Describe something only the genuine owner would know (e.g. lockscreen wallpaper, serial number, engraved initials). This detail will not appear publicly.
+              <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: '8px', lineHeight: 1.45 }}>
+                Describe a confidential feature only the true owner would know (e.g. lockscreen wallpaper, serial digits, engraved initials). Never published publicly.
               </p>
               <textarea 
                 name="privateEvidence"
                 maxLength={300}
                 rows={2}
                 className="form-control" 
-                placeholder="e.g. Red lanyard attached inside, serial number ends in 891, or custom phone case photo..."
+                placeholder="e.g. Wallpaper is a mountain sunset, serial number ends in 412..."
                 value={formData.privateEvidence}
                 onChange={handleChange}
-                style={{ fontSize: '0.86rem' }}
               />
             </div>
 
-            {/* Single Photo Upload (Optional, max 5 MB) */}
+            {/* 5. Review and Submit */}
             <div>
-              <label className="form-label" style={{ fontWeight: 600, fontSize: '0.88rem' }}>
-                Photo (Optional)
-              </label>
-              <div style={{ 
-                border: '1.5px dashed var(--border)', 
-                borderRadius: 'var(--radius-sm)', 
-                padding: '20px', 
-                textAlign: 'center', 
-                backgroundColor: 'var(--bg-color)' 
-              }}>
-                {formData.imageUrl ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
-                    <div style={{ width: '100%', maxWidth: '280px', height: '170px', borderRadius: '4px', overflow: 'hidden', border: '1px solid var(--border)' }}>
-                      <img src={formData.imageUrl} alt="Item Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    </div>
+              <h2 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '12px' }}>
+                5. Review and submit
+              </h2>
+              <p style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+                Please review your details above. Once submitted, your report will be logged and matched with complementary reports across campus.
+              </p>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      {selectedFile ? (
-                        <span style={{ fontSize: '0.78rem', padding: '3px 10px', backgroundColor: 'var(--primary-light)', color: 'var(--primary)', borderRadius: '4px', fontWeight: 600 }}>
-                          <Lock size={12} style={{ display: 'inline', marginRight: '4px' }} />
-                          File ready ({(selectedFile.size / (1024 * 1024)).toFixed(2)} MB)
-                        </span>
-                      ) : (
-                        <span style={{ fontSize: '0.78rem', padding: '3px 10px', backgroundColor: 'var(--primary-light)', color: 'var(--primary)', borderRadius: '4px', fontWeight: 600 }}>
-                          <Globe size={12} style={{ display: 'inline', marginRight: '4px' }} />
-                          Current image
-                        </span>
-                      )}
-                      <button type="button" className="btn btn-secondary" onClick={handleRemoveImage} disabled={isSaving} style={{ padding: '4px 10px', fontSize: '0.8rem' }}>
-                        Remove
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
-                    <UploadCloud size={24} color="var(--primary)" />
-                    <div style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--text-main)' }}>
-                      Upload 1 item photo
-                    </div>
-                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.78rem', margin: 0 }}>
-                      JPG, PNG, or WebP under 5 MB.
-                    </p>
-                    
-                    <input 
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp"
-                      ref={fileInputRef}
-                      onChange={handleImageUpload}
-                      disabled={isSaving}
-                      style={{ display: 'none' }}
-                    />
-                    <button 
-                      type="button" 
-                      className="btn btn-secondary" 
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={isSaving}
-                      style={{ padding: '6px 14px', fontSize: '0.82rem', marginTop: '6px' }}
-                    >
-                      Browse File
-                    </button>
-                    
-                    {imageError && (
-                      <div style={{ color: 'var(--danger)', fontSize: '0.8rem', marginTop: '4px' }}>
-                        {imageError}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {(!existingReport?.imagePath || selectedFile) && (
-                <label style={{
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  gap: '8px',
-                  marginTop: '8px',
-                  cursor: isSaving ? 'not-allowed' : 'pointer',
-                  fontSize: '0.82rem',
-                  color: 'var(--text-secondary)'
-                }}>
-                  <input
-                    type="checkbox"
-                    checked={isSensitiveImage}
-                    onChange={(e) => setIsSensitiveImage(e.target.checked)}
-                    disabled={isSaving}
-                    style={{ marginTop: '2px' }}
-                  />
-                  <span>
-                    <strong>Sensitive image</strong> — Check if the photo displays government/college ID numbers or personal documents. Excluded from public views.
-                  </span>
-                </label>
+              {submitError && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', backgroundColor: 'var(--danger-light)', color: 'var(--danger)', borderRadius: 'var(--radius-sm)', fontSize: '0.88rem', marginBottom: '16px' }}>
+                  <AlertCircle size={16} />
+                  <span>{submitError}</span>
+                </div>
               )}
-            </div>
-          </div>
 
-          {/* Form Actions Footer */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '28px', paddingTop: '16px', borderTop: '1px solid var(--border)' }}>
-            {submitError && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', backgroundColor: 'var(--danger-light)', color: 'var(--danger)', borderRadius: '4px', fontSize: '0.88rem' }}>
-                <AlertCircle size={16} />
-                <span>{submitError}</span>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', alignItems: 'center' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => navigate(-1)} disabled={isSaving}>
+                  Cancel
+                </button>
+                <button 
+                  type="submit" 
+                  className="btn btn-primary" 
+                  disabled={isSaving}
+                  style={{ minWidth: '160px' }}
+                >
+                  {isSaving ? (
+                    <>
+                      <Loader2 size={16} className="spin-loader" />
+                      <span>{uploadStatus || 'Saving...'}</span>
+                    </>
+                  ) : (
+                    <span>{isEdit ? 'Save Changes' : (isLost ? 'Submit Lost Report' : 'Submit Found Report')}</span>
+                  )}
+                </button>
               </div>
-            )}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', alignItems: 'center' }}>
-              <button type="button" className="btn btn-secondary" onClick={() => navigate(-1)} disabled={isSaving}>
-                Cancel
-              </button>
-              <button 
-                type="submit" 
-                className="btn btn-primary" 
-                style={{ minWidth: '160px' }}
-                disabled={isSaving}
-              >
-                {isSaving ? (
-                  <><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> {uploadStatus || 'Saving...'}</>
-                ) : (isEdit ? 'Save Changes' : (isLost ? 'Submit Lost Report' : 'Submit Found Report'))}
-              </button>
             </div>
+
           </div>
         </form>
       </div>

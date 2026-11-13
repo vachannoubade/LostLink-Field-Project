@@ -2,11 +2,9 @@ import React, { useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useData } from '../store/DataContext';
 import { useAuth } from '../store/AuthContext';
-import { motion, AnimatePresence } from 'framer-motion';
-import { CustomCursor } from './CustomCursor';
 import { 
   LayoutDashboard, Search, FilePlus, User,
-  Bell, Sparkles, FolderOpen, ChevronRight,
+  Bell, Sparkles, FolderOpen, 
   PackageSearch, Menu, X, Home, LogIn, LogOut, ShieldCheck, type LucideIcon
 } from 'lucide-react';
 
@@ -32,26 +30,23 @@ const NavItem: React.FC<NavItemProps> = ({ to, icon: Icon, label, mobile = false
         alignItems: 'center',
         justifyContent: mobile ? 'center' : 'flex-start',
         flexDirection: mobile ? 'column' : 'row',
-        gap: mobile ? '3px' : '11px',
-        padding: mobile ? '6px 4px' : '9px 14px',
-        borderRadius: mobile ? '8px' : 'var(--radius-sm)',
-        margin: mobile ? '0' : '1px 14px',
-        color: isActive ? (mobile ? 'var(--primary)' : 'var(--text-main)') : 'var(--text-secondary)',
-        backgroundColor: isActive && !mobile ? '#FFFFFF' : 'transparent',
-        boxShadow: isActive && !mobile ? '0 1px 3px rgba(18, 19, 22, 0.05), 0 1px 2px rgba(18, 19, 22, 0.03)' : 'none',
-        border: isActive && !mobile ? '1px solid var(--border)' : '1px solid transparent',
-        fontWeight: isActive ? 650 : 500,
-        fontSize: mobile ? '0.68rem' : '0.88rem',
-        letterSpacing: '-0.01em',
+        gap: mobile ? '3px' : '10px',
+        padding: mobile ? '6px 4px' : '9px 12px',
+        borderRadius: 'var(--radius-sm)',
+        margin: mobile ? '0' : '1px 12px',
+        color: isActive ? 'var(--primary)' : 'var(--text-secondary)',
+        backgroundColor: isActive && !mobile ? 'var(--primary-light)' : 'transparent',
+        fontWeight: isActive ? 600 : 500,
+        fontSize: mobile ? '0.72rem' : '0.88rem',
+        textDecoration: 'none',
         transition: 'var(--transition-fast)',
         flex: mobile ? 1 : 'none',
         minHeight: mobile ? '46px' : 'auto',
-        textDecoration: 'none',
         position: 'relative'
       }}
     >
       <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Icon size={mobile ? 20 : 17} strokeWidth={isActive ? 2.4 : 1.7} color={isActive ? 'var(--primary)' : 'currentColor'} />
+        <Icon size={mobile ? 20 : 18} strokeWidth={isActive ? 2.2 : 1.7} />
         {typeof badge === 'number' && badge > 0 && mobile && (
           <span style={{
             position: 'absolute',
@@ -59,8 +54,7 @@ const NavItem: React.FC<NavItemProps> = ({ to, icon: Icon, label, mobile = false
             right: '-6px',
             minWidth: '15px',
             height: '15px',
-            fontSize: '0.62rem',
-            fontFamily: 'var(--font-mono)',
+            fontSize: '0.65rem',
             fontWeight: 700,
             borderRadius: '999px',
             backgroundColor: 'var(--primary)',
@@ -68,20 +62,18 @@ const NavItem: React.FC<NavItemProps> = ({ to, icon: Icon, label, mobile = false
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            padding: '0 3px',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.2)'
+            padding: '0 3px'
           }}>
             {badge}
           </span>
         )}
       </div>
-      <span style={{ fontSize: mobile ? '0.68rem' : '0.88rem', color: isActive ? 'var(--primary)' : 'var(--text-muted)' }}>{label}</span>
+      <span>{label}</span>
       {typeof badge === 'number' && badge > 0 && !mobile && (
         <span style={{
           marginLeft: 'auto',
-          fontSize: '0.68rem',
-          fontFamily: 'var(--font-mono)',
-          fontWeight: 700,
+          fontSize: '0.72rem',
+          fontWeight: 600,
           padding: '2px 7px',
           borderRadius: '999px',
           backgroundColor: 'var(--primary)',
@@ -119,141 +111,142 @@ export const Layout: React.FC = () => {
 
   return (
     <div className="app-container">
-      {/* Desktop Contextual Pointer Follower */}
-      <CustomCursor />
-
-      {/* Desktop Editorial Registry Sidebar */}
+      {/* Desktop Navigation Sidebar */}
       <aside className="sidebar">
         {/* Brand Header */}
-        <div style={{ padding: '28px 24px 20px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div style={{ padding: '24px 20px 16px', display: 'flex', alignItems: 'center', gap: '10px' }}>
           <div style={{ 
             width: '36px', 
             height: '36px', 
-            borderRadius: '9px', 
-            backgroundColor: 'var(--text-main)', 
+            borderRadius: 'var(--radius-sm)', 
+            backgroundColor: 'var(--primary)', 
             color: '#FFFFFF', 
             display: 'flex', 
             alignItems: 'center', 
-            justifyContent: 'center',
-            boxShadow: '0 2px 8px rgba(18, 19, 22, 0.15)'
+            justifyContent: 'center'
           }}>
             <PackageSearch size={20} />
           </div>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span style={{ fontSize: '1.25rem', fontFamily: 'var(--font-display)', fontWeight: 800, color: 'var(--text-main)', letterSpacing: '-0.03em', lineHeight: 1 }}>
-                LostLink
-              </span>
+            <div style={{ fontSize: '1.15rem', fontWeight: 700, color: 'var(--text-main)', letterSpacing: '-0.02em', lineHeight: 1.1 }}>
+              LostLink
             </div>
-            <span style={{ fontSize: '0.64rem', fontFamily: 'var(--font-mono)', fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.08em' }}>
-              Campus Registry
-            </span>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+              Sanjay Ghodawat Univ.
+            </div>
           </div>
         </div>
 
         {/* Navigation Items */}
-        <nav style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '2px', marginTop: '12px' }}>
+        <nav style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '2px', padding: '8px 0', overflowY: 'auto' }}>
           <NavItem to="/" icon={LayoutDashboard} label="Dashboard" />
           <NavItem to="/browse" icon={Search} label="Browse Items" />
-          
-          <div style={{ padding: '16px 24px 6px', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-            Report Items
-          </div>
-          <NavItem to="/report/lost" icon={FilePlus} label="Report Lost" />
-          <NavItem to="/report/found" icon={FilePlus} label="Report Found" />
 
-          <div style={{ padding: '16px 24px 6px', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-            Personal Space
+          <div style={{ padding: '16px 20px 6px', fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            Report
+          </div>
+          <NavItem to="/report/lost" icon={FilePlus} label="Report Lost Item" />
+          <NavItem to="/report/found" icon={FilePlus} label="Report Found Item" />
+
+          <div style={{ padding: '16px 20px 6px', fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            Personal
           </div>
           <NavItem to="/my-reports" icon={FolderOpen} label="My Items" />
           <NavItem to="/ai-matches" icon={Sparkles} label="AI Matches" badge={pendingMatchCount} />
 
           {profile?.isAdmin && (
             <>
-              <div style={{ padding: '16px 24px 6px', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              <div style={{ padding: '16px 20px 6px', fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                 Administration
               </div>
-              <NavItem to="/admin" icon={ShieldCheck} label="Admin Portal" />
+              <NavItem to="/admin" icon={ShieldCheck} label="Admin Dashboard" />
             </>
           )}
         </nav>
 
-        {/* User / Sign Out Footer */}
-        <div style={{ padding: '18px 0', borderTop: '1px solid var(--border)' }}>
-          <NavItem to="/profile" icon={User} label="Profile & Settings" />
-
+        {/* Footer / Account Area */}
+        <div style={{ padding: '12px 0 16px', borderTop: '1px solid var(--border)' }}>
           {isAuthenticated ? (
-            <button
-              onClick={handleSignOut}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '12px',
-                padding: '9px 14px',
-                margin: '4px 14px 0',
-                borderRadius: 'var(--radius-sm)',
-                border: 'none',
-                background: 'transparent',
-                color: 'var(--danger)',
-                cursor: 'pointer',
-                fontSize: '0.92rem',
-                fontWeight: 500,
-                width: 'calc(100% - 28px)',
-                textAlign: 'left',
-                transition: 'var(--transition)'
-              }}
-            >
-              <LogOut size={18} />
-              <span>Sign Out</span>
-            </button>
+            <>
+              <NavItem to="/profile" icon={User} label="Profile & Settings" />
+              <button
+                onClick={handleSignOut}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  padding: '9px 12px',
+                  margin: '2px 12px 0',
+                  borderRadius: 'var(--radius-sm)',
+                  border: 'none',
+                  background: 'transparent',
+                  color: 'var(--danger)',
+                  cursor: 'pointer',
+                  fontSize: '0.88rem',
+                  fontWeight: 500,
+                  width: 'calc(100% - 24px)',
+                  textAlign: 'left',
+                  transition: 'var(--transition-fast)'
+                }}
+              >
+                <LogOut size={18} />
+                <span>Sign Out</span>
+              </button>
+            </>
           ) : (
-            <NavItem to="/login" icon={LogIn} label="Sign In" />
+            <>
+              <NavItem to="/login" icon={LogIn} label="Sign In" />
+              {/* Mandatory Admin Sign In Entry Point */}
+              <NavLink
+                to="/admin/login"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  padding: '9px 12px',
+                  margin: '2px 12px 0',
+                  borderRadius: 'var(--radius-sm)',
+                  color: 'var(--text-secondary)',
+                  fontSize: '0.84rem',
+                  fontWeight: 500,
+                  textDecoration: 'none',
+                  transition: 'var(--transition-fast)'
+                }}
+              >
+                <ShieldCheck size={18} />
+                <span>Admin sign in</span>
+              </NavLink>
+            </>
           )}
         </div>
       </aside>
 
       {/* Main Content Area */}
       <main className="main-content">
-        {/* Desktop Liquid Glass Top Nav */}
+        {/* Desktop Top Navigation Bar */}
         <header className="top-nav">
-          <div style={{ display: 'flex', alignItems: 'center', flex: 1 }}>
-            <div style={{ position: 'relative', width: '100%', maxWidth: '380px', display: 'flex', alignItems: 'center' }}>
-              <Search size={16} style={{ position: 'absolute', left: '16px', color: 'var(--text-muted)' }} />
+          <div style={{ display: 'flex', alignItems: 'center', flex: 1, maxWidth: '420px', marginRight: 'auto' }}>
+            <div style={{ position: 'relative', width: '100%', display: 'flex', alignItems: 'center' }}>
+              <Search size={16} style={{ position: 'absolute', left: '14px', color: 'var(--text-tertiary)' }} />
               <input 
                 type="text" 
                 placeholder="Search campus items... (Press Enter)" 
                 className="form-control"
                 style={{ 
-                  paddingLeft: '42px', 
-                  paddingRight: '64px',
-                  borderRadius: '999px', 
-                  backgroundColor: 'rgba(255, 255, 255, 0.7)', 
-                  border: '1px solid var(--border)',
-                  fontSize: '0.88rem',
-                  height: '40px',
-                  boxShadow: 'var(--shadow-sm)'
+                  paddingLeft: '38px', 
+                  borderRadius: 'var(--radius-full)', 
+                  height: '38px',
+                  backgroundColor: 'var(--bg-secondary)',
+                  fontSize: '0.85rem'
                 }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') navigate(`/browse?q=${encodeURIComponent(e.currentTarget.value)}`);
                 }}
               />
-              <span style={{ 
-                position: 'absolute', 
-                right: '12px', 
-                fontSize: '0.72rem', 
-                fontWeight: 600, 
-                color: 'var(--text-tertiary)', 
-                backgroundColor: 'rgba(0,0,0,0.05)', 
-                padding: '2px 6px', 
-                borderRadius: '4px' 
-              }}>
-                ↵
-              </span>
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <button 
               className="btn btn-ghost" 
               style={{ position: 'relative', width: '38px', height: '38px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }} 
@@ -266,11 +259,10 @@ export const Layout: React.FC = () => {
                   position: 'absolute', 
                   top: '8px', 
                   right: '8px', 
-                  width: '8px', 
-                  height: '8px', 
+                  width: '7px', 
+                  height: '7px', 
                   backgroundColor: 'var(--danger)', 
-                  borderRadius: '50%', 
-                  border: '1.5px solid #FFFFFF' 
+                  borderRadius: '50%'
                 }} />
               )}
             </button>
@@ -280,42 +272,39 @@ export const Layout: React.FC = () => {
                 style={{ 
                   display: 'flex', 
                   alignItems: 'center', 
-                  gap: '9px', 
+                  gap: '8px', 
                   cursor: 'pointer',
-                  padding: '4px 12px 4px 6px',
-                  borderRadius: '999px',
-                  backgroundColor: 'rgba(255, 255, 255, 0.75)',
+                  padding: '4px 10px 4px 6px',
+                  borderRadius: 'var(--radius-full)',
                   border: '1px solid var(--border)',
-                  boxShadow: 'var(--shadow-sm)',
-                  transition: 'var(--transition)'
+                  backgroundColor: 'var(--bg-surface)'
                 }}
                 onClick={() => navigate('/profile')}
                 title={`Logged in as ${displayName}`}
               >
                 <div style={{
-                  width: '28px',
-                  height: '28px',
+                  width: '26px',
+                  height: '26px',
                   borderRadius: '50%',
-                  background: 'linear-gradient(135deg, var(--primary) 0%, #0F3FA8 100%)',
-                  color: 'white',
+                  backgroundColor: 'var(--primary)',
+                  color: '#FFFFFF',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  fontWeight: 700,
-                  fontSize: '0.82rem'
+                  fontWeight: 600,
+                  fontSize: '0.78rem'
                 }}>
                   {avatarLetter}
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15 }}>
-                  <span style={{ fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-main)' }}>{displayName.split(' ')[0]}</span>
-                  <span style={{ fontSize: '0.68rem', color: '#16A34A', fontWeight: 600 }}>Online</span>
-                </div>
+                <span style={{ fontSize: '0.82rem', fontWeight: 500, color: 'var(--text-main)' }}>
+                  {displayName.split(' ')[0]}
+                </span>
               </div>
             ) : (
               <button
                 onClick={() => navigate('/login')}
                 className="btn btn-primary"
-                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 14px', fontSize: '0.85rem' }}
+                style={{ padding: '6px 14px', fontSize: '0.84rem' }}
               >
                 <LogIn size={15} />
                 <span>Sign In</span>
@@ -324,16 +313,27 @@ export const Layout: React.FC = () => {
           </div>
         </header>
 
-        {/* Mobile Liquid Glass Header */}
+        {/* Mobile Header */}
         <header className="mobile-header">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <div style={{ width: '32px', height: '32px', borderRadius: '9px', background: 'linear-gradient(145deg, var(--primary) 0%, #0F3FA8 100%)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(24, 90, 219, 0.3)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{ 
+              width: '30px', 
+              height: '30px', 
+              borderRadius: 'var(--radius-xs)', 
+              backgroundColor: 'var(--primary)', 
+              color: '#FFFFFF', 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'center' 
+            }}>
               <PackageSearch size={18} />
             </div>
-            <span style={{ fontSize: '1.2rem', fontWeight: 700, letterSpacing: '-0.03em', color: 'var(--text-main)' }}>LostLink</span>
+            <span style={{ fontSize: '1.1rem', fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text-main)' }}>
+              LostLink
+            </span>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <button 
               className="btn btn-ghost" 
               style={{ padding: '8px', position: 'relative' }} 
@@ -341,136 +341,150 @@ export const Layout: React.FC = () => {
               aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ''}`}
             >
               <Bell size={20} />
-              {unreadCount > 0 && <span style={{ position: 'absolute', top: '7px', right: '7px', width: '7px', height: '7px', backgroundColor: 'var(--danger)', borderRadius: '50%' }} />}
+              {unreadCount > 0 && (
+                <span style={{ 
+                  position: 'absolute', 
+                  top: '7px', 
+                  right: '7px', 
+                  width: '7px', 
+                  height: '7px', 
+                  backgroundColor: 'var(--danger)', 
+                  borderRadius: '50%' 
+                }} />
+              )}
             </button>
-            <button className="btn btn-ghost" style={{ padding: '8px' }} onClick={() => setMobileMenuOpen(true)}>
+            <button 
+              className="btn btn-ghost" 
+              style={{ padding: '8px' }} 
+              onClick={() => setMobileMenuOpen(true)}
+              aria-label="Open menu"
+            >
               <Menu size={22} />
             </button>
           </div>
         </header>
 
-        {/* Mobile Navigation Drawer */}
-        <AnimatePresence>
-          {mobileMenuOpen && (
-            <motion.div 
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', zIndex: 60 }}
-              onClick={() => setMobileMenuOpen(false)}
+        {/* Mobile Slide Drawer Menu */}
+        {mobileMenuOpen && (
+          <div 
+            style={{ 
+              position: 'fixed', 
+              inset: 0, 
+              backgroundColor: 'rgba(0,0,0,0.3)', 
+              zIndex: 70 
+            }}
+            onClick={() => setMobileMenuOpen(false)}
+          >
+            <div 
+              style={{ 
+                position: 'absolute', 
+                top: 0, 
+                right: 0, 
+                bottom: 0, 
+                width: '80%', 
+                maxWidth: '300px', 
+                backgroundColor: 'var(--bg-surface)', 
+                borderLeft: '1px solid var(--border)',
+                padding: '20px 0', 
+                display: 'flex', 
+                flexDirection: 'column' 
+              }}
+              onClick={e => e.stopPropagation()}
             >
-              <motion.div 
-                initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
-                transition={{ type: 'spring', damping: 28, stiffness: 320 }}
-                style={{ 
-                  position: 'absolute', 
-                  top: 0, 
-                  right: 0, 
-                  bottom: 0, 
-                  width: '82%', 
-                  maxWidth: '310px', 
-                  backgroundColor: 'var(--bg-glass-heavy)', 
-                  backdropFilter: 'var(--blur-nav)',
-                  WebkitBackdropFilter: 'var(--blur-nav)',
-                  borderLeft: '1px solid var(--border)',
-                  boxShadow: 'var(--glass-specular), -8px 0 32px rgba(0,0,0,0.12)',
-                  padding: '24px 0', 
-                  display: 'flex', 
-                  flexDirection: 'column' 
-                }}
-                onClick={e => e.stopPropagation()}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 20px 20px', borderBottom: '1px solid var(--border)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <div style={{ width: '38px', height: '38px', borderRadius: '50%', backgroundColor: 'var(--primary-light)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.95rem' }}>
-                      {avatarLetter}
-                    </div>
-                    <div>
-                      <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>{displayName}</div>
-                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                        {profile?.email || user?.email || 'Campus Student'}
-                      </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 18px 16px', borderBottom: '1px solid var(--border)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div style={{ width: '34px', height: '34px', borderRadius: '50%', backgroundColor: 'var(--primary-light)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, fontSize: '0.9rem' }}>
+                    {avatarLetter}
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{displayName}</div>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                      {profile?.email || user?.email || 'Campus Student'}
                     </div>
                   </div>
-                  <button onClick={() => setMobileMenuOpen(false)} style={{ padding: '6px', color: 'var(--text-muted)', background: 'transparent', border: 'none', cursor: 'pointer' }}>
-                    <X size={20} />
+                </div>
+                <button onClick={() => setMobileMenuOpen(false)} style={{ padding: '6px', color: 'var(--text-muted)' }}>
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div style={{ padding: '12px 0', flex: 1, overflowY: 'auto' }}>
+                <NavItem to="/" icon={LayoutDashboard} label="Dashboard" onNavigate={() => setMobileMenuOpen(false)} />
+                <NavItem to="/browse" icon={Search} label="Browse Items" onNavigate={() => setMobileMenuOpen(false)} />
+                <div style={{ margin: '10px 18px', height: '1px', backgroundColor: 'var(--border)' }} />
+                <NavItem to="/report/lost" icon={FilePlus} label="Report Lost Item" onNavigate={() => setMobileMenuOpen(false)} />
+                <NavItem to="/report/found" icon={FilePlus} label="Report Found Item" onNavigate={() => setMobileMenuOpen(false)} />
+                <div style={{ margin: '10px 18px', height: '1px', backgroundColor: 'var(--border)' }} />
+                <NavItem to="/my-reports" icon={FolderOpen} label="My Items" onNavigate={() => setMobileMenuOpen(false)} />
+                <NavItem to="/ai-matches" icon={Sparkles} label="AI Matches" badge={pendingMatchCount} onNavigate={() => setMobileMenuOpen(false)} />
+                <NavItem to="/profile" icon={User} label="Profile & Settings" onNavigate={() => setMobileMenuOpen(false)} />
+                
+                {profile?.isAdmin && (
+                  <>
+                    <div style={{ margin: '10px 18px', height: '1px', backgroundColor: 'var(--border)' }} />
+                    <NavItem to="/admin" icon={ShieldCheck} label="Admin Dashboard" onNavigate={() => setMobileMenuOpen(false)} />
+                  </>
+                )}
+
+                {!isAuthenticated && (
+                  <>
+                    <div style={{ margin: '10px 18px', height: '1px', backgroundColor: 'var(--border)' }} />
+                    <NavItem to="/admin/login" icon={ShieldCheck} label="Admin sign in" onNavigate={() => setMobileMenuOpen(false)} />
+                  </>
+                )}
+
+                <div style={{ margin: '10px 18px', height: '1px', backgroundColor: 'var(--border)' }} />
+                {isAuthenticated ? (
+                  <button
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      handleSignOut();
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                      padding: '9px 14px',
+                      margin: '2px 14px',
+                      borderRadius: 'var(--radius-sm)',
+                      border: 'none',
+                      background: 'transparent',
+                      color: 'var(--danger)',
+                      cursor: 'pointer',
+                      fontSize: '0.88rem',
+                      fontWeight: 500,
+                      width: 'calc(100% - 28px)',
+                      textAlign: 'left'
+                    }}
+                  >
+                    <LogOut size={18} />
+                    <span>Sign Out</span>
                   </button>
-                </div>
+                ) : (
+                  <NavItem
+                    to="/login"
+                    icon={LogIn}
+                    label="Sign In"
+                    onNavigate={() => setMobileMenuOpen(false)}
+                  />
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
-                <div style={{ padding: '16px 0', flex: 1, overflowY: 'auto' }}>
-                  <NavItem to="/" icon={LayoutDashboard} label="Dashboard" onNavigate={() => setMobileMenuOpen(false)} />
-                  <NavItem to="/browse" icon={Search} label="Browse Items" onNavigate={() => setMobileMenuOpen(false)} />
-                  <div style={{ margin: '14px 20px', height: '1px', backgroundColor: 'var(--border)' }} />
-                  <NavItem to="/report/lost" icon={FilePlus} label="Report Lost Item" onNavigate={() => setMobileMenuOpen(false)} />
-                  <NavItem to="/report/found" icon={FilePlus} label="Report Found Item" onNavigate={() => setMobileMenuOpen(false)} />
-                  <div style={{ margin: '14px 20px', height: '1px', backgroundColor: 'var(--border)' }} />
-                  <NavItem to="/my-reports" icon={FolderOpen} label="My Items" onNavigate={() => setMobileMenuOpen(false)} />
-                  <NavItem to="/ai-matches" icon={Sparkles} label="AI Matches" badge={pendingMatchCount} onNavigate={() => setMobileMenuOpen(false)} />
-                  {profile?.isAdmin && (
-                    <NavItem to="/admin" icon={ShieldCheck} label="Admin Portal" onNavigate={() => setMobileMenuOpen(false)} />
-                  )}
-                  <NavItem to="/profile" icon={User} label="Profile" onNavigate={() => setMobileMenuOpen(false)} />
-                  <div style={{ margin: '14px 20px', height: '1px', backgroundColor: 'var(--border)' }} />
-                  {isAuthenticated ? (
-                    <button
-                      onClick={() => {
-                        setMobileMenuOpen(false);
-                        handleSignOut();
-                      }}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '12px',
-                        padding: '10px 14px',
-                        margin: '2px 14px',
-                        borderRadius: 'var(--radius-sm)',
-                        border: 'none',
-                        background: 'transparent',
-                        color: 'var(--danger)',
-                        cursor: 'pointer',
-                        fontSize: '0.92rem',
-                        fontWeight: 500,
-                        width: 'calc(100% - 28px)',
-                        textAlign: 'left'
-                      }}
-                    >
-                      <LogOut size={18} />
-                      <span>Sign Out</span>
-                    </button>
-                  ) : (
-                    <NavItem
-                      to="/login"
-                      icon={LogIn}
-                      label="Sign In"
-                      onNavigate={() => setMobileMenuOpen(false)}
-                    />
-                  )}
-                </div>
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Page Content Container with Smooth Subtle Fade */}
+        {/* Page Content Viewport */}
         <div className="page-container">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={location.pathname}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -6 }}
-              transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-            >
-              <Outlet />
-            </motion.div>
-          </AnimatePresence>
+          <Outlet />
         </div>
       </main>
 
-      {/* Refined Docked Mobile Navigation Bar */}
+      {/* Docked Mobile Navigation Bar */}
       <nav className="mobile-nav" aria-label="Mobile Navigation">
         <NavItem to="/" icon={Home} label="Home" mobile />
         <NavItem to="/browse" icon={Search} label="Browse" mobile />
         
-        {/* Report Action Button */}
+        {/* Report Chooser Trigger */}
         <button
           type="button"
           onClick={() => setReportSheetOpen(true)}
@@ -487,27 +501,23 @@ export const Layout: React.FC = () => {
             background: 'transparent',
             cursor: 'pointer'
           }}
-          aria-label="Report lost or found item"
+          aria-label="Report item"
         >
           <div style={{
             width: '32px',
             height: '32px',
-            borderRadius: '8px',
-            background: location.pathname.startsWith('/report')
-              ? 'linear-gradient(135deg, var(--primary) 0%, #0E3485 100%)'
-              : 'rgba(21, 69, 168, 0.1)',
+            borderRadius: 'var(--radius-xs)',
+            backgroundColor: location.pathname.startsWith('/report') ? 'var(--primary)' : 'var(--primary-light)',
             color: location.pathname.startsWith('/report') ? '#FFFFFF' : 'var(--primary)',
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center',
-            boxShadow: location.pathname.startsWith('/report') ? '0 2px 8px var(--primary-glow)' : 'none',
-            transition: 'var(--transition-fast)'
+            justifyContent: 'center'
           }}>
             <FilePlus size={18} strokeWidth={2.2} />
           </div>
           <span style={{ 
-            fontSize: '0.68rem', 
-            fontWeight: location.pathname.startsWith('/report') ? 700 : 500,
+            fontSize: '0.72rem', 
+            fontWeight: location.pathname.startsWith('/report') ? 600 : 500,
             color: location.pathname.startsWith('/report') ? 'var(--primary)' : 'var(--text-muted)'
           }}>
             Report
@@ -518,139 +528,93 @@ export const Layout: React.FC = () => {
         <NavItem to="/profile" icon={User} label="Profile" mobile />
       </nav>
 
-      {/* Refined Mobile Report Action Bottom Sheet */}
-      <AnimatePresence>
-        {reportSheetOpen && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.18 }}
+      {/* Mobile Report Chooser Sheet */}
+      {reportSheetOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.4)',
+            zIndex: 90,
+            display: 'flex',
+            alignItems: 'flex-end',
+            justifyContent: 'center'
+          }}
+          onClick={() => setReportSheetOpen(false)}
+        >
+          <div
             style={{
-              position: 'fixed',
-              inset: 0,
-              backgroundColor: 'rgba(18, 19, 22, 0.45)',
-              backdropFilter: 'blur(8px)',
-              WebkitBackdropFilter: 'blur(8px)',
-              zIndex: 90,
-              display: 'flex',
-              alignItems: 'flex-end',
-              justifyContent: 'center'
+              width: '100%',
+              maxWidth: '480px',
+              backgroundColor: 'var(--bg-surface)',
+              borderRadius: '16px 16px 0 0',
+              padding: '24px 20px calc(24px + env(safe-area-inset-bottom))',
+              borderTop: '1px solid var(--border)'
             }}
-            onClick={() => setReportSheetOpen(false)}
+            onClick={e => e.stopPropagation()}
           >
-            <motion.div
-              initial={{ y: '100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '100%' }}
-              transition={{ type: 'spring', damping: 28, stiffness: 320 }}
-              style={{
-                width: '100%',
-                maxWidth: '520px',
-                backgroundColor: '#FFFFFF',
-                borderTopLeftRadius: '22px',
-                borderTopRightRadius: '22px',
-                padding: '16px 20px calc(24px + env(safe-area-inset-bottom))',
-                boxShadow: '0 -10px 36px rgba(0,0,0,0.18)',
-                borderTop: '1px solid var(--border)'
-              }}
-              onClick={e => e.stopPropagation()}
-            >
-              {/* Drag/Pull Handle */}
-              <div style={{ width: '36px', height: '4px', borderRadius: '2px', backgroundColor: 'var(--border)', margin: '0 auto 16px' }} />
+            <div style={{ width: '36px', height: '4px', backgroundColor: 'var(--border)', borderRadius: '999px', margin: '0 auto 16px' }} />
+            <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '4px', textAlign: 'center' }}>
+              Report an Item
+            </h3>
+            <p style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', textAlign: 'center', marginBottom: '20px' }}>
+              Select what type of report you want to file
+            </p>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-                <div>
-                  <div style={{ fontSize: '0.68rem', fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                    CAMPUS REGISTRY INTAKE
-                  </div>
-                  <h3 style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--text-main)', margin: '2px 0 0', letterSpacing: '-0.02em' }}>
-                    What would you like to report?
-                  </h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setReportSheetOpen(false);
+                  navigate('/report/lost');
+                }}
+                className="btn btn-secondary"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  padding: '14px 16px',
+                  justifyContent: 'flex-start',
+                  minHeight: '52px'
+                }}
+              >
+                <div style={{ width: '32px', height: '32px', borderRadius: 'var(--radius-xs)', backgroundColor: 'var(--warning-light)', color: 'var(--warning)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <FilePlus size={18} />
                 </div>
-                <button 
-                  type="button"
-                  onClick={() => setReportSheetOpen(false)} 
-                  style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: 'var(--bg-secondary)', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', cursor: 'pointer' }}
-                  aria-label="Close report sheet"
-                >
-                  <X size={18} />
-                </button>
-              </div>
+                <div style={{ textAlign: 'left' }}>
+                  <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-main)' }}>Report a Lost Item</div>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>You are searching for something you misplaced</div>
+                </div>
+              </button>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setReportSheetOpen(false);
-                    navigate('/report/lost');
-                  }}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '14px',
-                    padding: '14px 16px',
-                    borderRadius: '12px',
-                    border: '1px solid rgba(217, 119, 6, 0.25)',
-                    backgroundColor: 'rgba(254, 243, 199, 0.5)',
-                    textAlign: 'left',
-                    cursor: 'pointer',
-                    transition: 'var(--transition)'
-                  }}
-                >
-                  <div style={{ width: '42px', height: '42px', borderRadius: '10px', backgroundColor: '#FEF3C7', border: '1px solid #FDE68A', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#B45309', flexShrink: 0 }}>
-                    <FilePlus size={22} />
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
-                      <span style={{ fontSize: '0.96rem', fontWeight: 700, color: '#92400E' }}>I Lost an Item</span>
-                      <span className="mono-token mono-token-amber" style={{ fontSize: '0.65rem', padding: '1px 6px' }}>SEARCH</span>
-                    </div>
-                    <div style={{ fontSize: '0.78rem', color: '#78350F', lineHeight: 1.35 }}>
-                      File a lost inquiry to automatically match with recovered campus items.
-                    </div>
-                  </div>
-                  <ChevronRight size={18} color="#92400E" />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setReportSheetOpen(false);
-                    navigate('/report/found');
-                  }}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '14px',
-                    padding: '14px 16px',
-                    borderRadius: '12px',
-                    border: '1px solid rgba(13, 122, 95, 0.25)',
-                    backgroundColor: 'rgba(236, 253, 245, 0.5)',
-                    textAlign: 'left',
-                    cursor: 'pointer',
-                    transition: 'var(--transition)'
-                  }}
-                >
-                  <div style={{ width: '42px', height: '42px', borderRadius: '10px', backgroundColor: '#D1FAE5', border: '1px solid #A7F3D0', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#047857', flexShrink: 0 }}>
-                    <PackageSearch size={22} />
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
-                      <span style={{ fontSize: '0.96rem', fontWeight: 700, color: '#065F46' }}>I Found an Item</span>
-                      <span className="mono-token mono-token-emerald" style={{ fontSize: '0.65rem', padding: '1px 6px' }}>CUSTODY</span>
-                    </div>
-                    <div style={{ fontSize: '0.78rem', color: '#064E3B', lineHeight: 1.35 }}>
-                      Log a recovered article to help return it to its rightful campus owner.
-                    </div>
-                  </div>
-                  <ChevronRight size={18} color="#065F46" />
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+              <button
+                type="button"
+                onClick={() => {
+                  setReportSheetOpen(false);
+                  navigate('/report/found');
+                }}
+                className="btn btn-secondary"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  padding: '14px 16px',
+                  justifyContent: 'flex-start',
+                  minHeight: '52px'
+                }}
+              >
+                <div style={{ width: '32px', height: '32px', borderRadius: 'var(--radius-xs)', backgroundColor: 'var(--primary-light)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <PackageSearch size={18} />
+                </div>
+                <div style={{ textAlign: 'left' }}>
+                  <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-main)' }}>I Found Something</div>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>You discovered an item on campus and want to return it</div>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

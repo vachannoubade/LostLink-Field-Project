@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
 import {
   AlertCircle,
   CheckCircle2,
@@ -680,7 +679,7 @@ export const AdminPortal: React.FC = () => {
       )}
 
       {/* Main Navigation Tabs */}
-      <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border)', marginBottom: '20px' }}>
+      <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border)', marginBottom: '20px', overflowX: 'auto', whiteSpace: 'nowrap', paddingBottom: '2px', WebkitOverflowScrolling: 'touch' }}>
         {[
           { id: 'reports', label: 'Reports & Matches', icon: FileText, badge: reports.length },
           { id: 'claims', label: 'Claims & Handover Queue', icon: ShieldCheck, badge: pendingClaimsCount },
@@ -771,18 +770,18 @@ export const AdminPortal: React.FC = () => {
             </div>
           </div>
 
-          {/* Reports Table */}
-          <div className="card" style={{ backgroundColor: '#FFFFFF', borderRadius: 'var(--radius)', border: '1px solid var(--border)', overflow: 'hidden' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.86rem' }}>
+          {/* Reports Desktop Table */}
+          <div className="desktop-only table-wrapper card" style={{ backgroundColor: '#FFFFFF', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
+            <table className="table">
               <thead>
-                <tr style={{ backgroundColor: 'var(--bg-color)', borderBottom: '1px solid var(--border)', color: 'var(--text-muted)', fontSize: '0.74rem', textTransform: 'uppercase' }}>
-                  <th style={{ padding: '12px 16px' }}>Status</th>
-                  <th style={{ padding: '12px 16px' }}>Title & Brand</th>
-                  <th style={{ padding: '12px 16px' }}>Category</th>
-                  <th style={{ padding: '12px 16px' }}>Location / Zone</th>
-                  <th style={{ padding: '12px 16px' }}>Date</th>
-                  <th style={{ padding: '12px 16px' }}>Reporter</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'right' }}>Action</th>
+                <tr>
+                  <th>Status</th>
+                  <th>Title & Brand</th>
+                  <th>Category</th>
+                  <th>Location / Zone</th>
+                  <th>Date</th>
+                  <th>Reporter</th>
+                  <th style={{ textAlign: 'right' }}>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -794,20 +793,20 @@ export const AdminPortal: React.FC = () => {
                   </tr>
                 ) : (
                   filteredReports.map(report => (
-                    <tr key={report.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                      <td style={{ padding: '12px 16px' }}>
+                    <tr key={report.id}>
+                      <td>
                         <span style={{
                           padding: '2px 6px',
                           borderRadius: '4px',
                           fontSize: '0.72rem',
                           fontWeight: 650,
-                          backgroundColor: report.status === 'resolved' ? 'var(--bg-color)' : report.type === 'lost' ? 'var(--danger-light)' : 'var(--success-light)',
+                          backgroundColor: report.status === 'resolved' ? 'var(--bg-secondary)' : report.type === 'lost' ? 'var(--danger-light)' : 'var(--success-light)',
                           color: report.status === 'resolved' ? 'var(--text-muted)' : report.type === 'lost' ? 'var(--danger)' : 'var(--success)'
                         }}>
                           {report.status.toUpperCase()}
                         </span>
                       </td>
-                      <td style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--text-main)' }}>
+                      <td style={{ fontWeight: 600, color: 'var(--text-main)' }}>
                         <div>{report.title}</div>
                         {report.brandModel && (
                           <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', fontWeight: 400 }}>
@@ -815,22 +814,22 @@ export const AdminPortal: React.FC = () => {
                           </div>
                         )}
                       </td>
-                      <td style={{ padding: '12px 16px', color: 'var(--text-secondary)' }}>
+                      <td style={{ color: 'var(--text-secondary)' }}>
                         {report.category}
                       </td>
-                      <td style={{ padding: '12px 16px', color: 'var(--text-secondary)' }}>
+                      <td style={{ color: 'var(--text-secondary)' }}>
                         {report.campusZone || report.location}
                       </td>
-                      <td style={{ padding: '12px 16px', color: 'var(--text-secondary)' }}>
+                      <td style={{ color: 'var(--text-secondary)' }}>
                         {formatDate(report.date)}
                       </td>
-                      <td style={{ padding: '12px 16px', color: 'var(--text-secondary)' }}>
+                      <td style={{ color: 'var(--text-secondary)' }}>
                         {report.reporterName || 'Student'}
                       </td>
-                      <td style={{ padding: '12px 16px', textAlign: 'right' }}>
+                      <td style={{ textAlign: 'right' }}>
                         <button 
                           onClick={() => openRecord(report.id)}
-                          className="btn btn-secondary"
+                          className="btn btn-secondary btn-sm"
                           style={{ padding: '4px 10px', fontSize: '0.78rem' }}
                         >
                           Details
@@ -842,21 +841,72 @@ export const AdminPortal: React.FC = () => {
               </tbody>
             </table>
           </div>
+
+          {/* Reports Mobile Stacked Record Cards */}
+          <div className="mobile-only" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {filteredReports.length === 0 ? (
+              <div className="card" style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                No reports found in this category.
+              </div>
+            ) : (
+              filteredReports.map(report => (
+                <div key={report.id} className="record-card">
+                  <div className="record-card-row">
+                    <span style={{
+                      padding: '2px 6px',
+                      borderRadius: '4px',
+                      fontSize: '0.72rem',
+                      fontWeight: 650,
+                      backgroundColor: report.status === 'resolved' ? 'var(--bg-secondary)' : report.type === 'lost' ? 'var(--danger-light)' : 'var(--success-light)',
+                      color: report.status === 'resolved' ? 'var(--text-muted)' : report.type === 'lost' ? 'var(--danger)' : 'var(--success)'
+                    }}>
+                      {report.status.toUpperCase()}
+                    </span>
+                    <span style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
+                      {formatDate(report.date)}
+                    </span>
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: '0.92rem', color: 'var(--text-main)' }}>{report.title}</div>
+                    {report.brandModel && (
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                        {report.brandModel} {report.color ? `• ${report.color}` : ''}
+                      </div>
+                    )}
+                  </div>
+                  <div className="record-card-row" style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                    <span>{report.category}</span>
+                    <span>{report.campusZone || report.location}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '4px' }}>
+                    <button
+                      onClick={() => openRecord(report.id)}
+                      className="btn btn-secondary btn-sm"
+                      style={{ padding: '4px 12px', fontSize: '0.8rem' }}
+                    >
+                      View Details
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
         </div>
       )}
 
       {/* SECTION 2: CLAIMS & HANDOVER QUEUE */}
       {activeSection === 'claims' && (
         <div>
-          <div className="card" style={{ backgroundColor: '#FFFFFF', borderRadius: 'var(--radius)', border: '1px solid var(--border)', overflow: 'hidden' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.86rem' }}>
+          {/* Claims Desktop Table */}
+          <div className="desktop-only table-wrapper card" style={{ backgroundColor: '#FFFFFF', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
+            <table className="table">
               <thead>
-                <tr style={{ backgroundColor: 'var(--bg-color)', borderBottom: '1px solid var(--border)', color: 'var(--text-muted)', fontSize: '0.74rem', textTransform: 'uppercase' }}>
-                  <th style={{ padding: '12px 16px' }}>Claim Status</th>
-                  <th style={{ padding: '12px 16px' }}>Target Found Item</th>
-                  <th style={{ padding: '12px 16px' }}>Claimant Evidence (Private)</th>
-                  <th style={{ padding: '12px 16px' }}>Submitted</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'right' }}>Desk Action</th>
+                <tr>
+                  <th>Claim Status</th>
+                  <th>Target Found Item</th>
+                  <th>Claimant Evidence (Private)</th>
+                  <th>Submitted</th>
+                  <th style={{ textAlign: 'right' }}>Desk Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -871,8 +921,8 @@ export const AdminPortal: React.FC = () => {
                     const targetReportId = claim.foundReportId || claim.found_report_id || '';
                     const foundItem = reportById.get(targetReportId);
                     return (
-                      <tr key={claim.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                        <td style={{ padding: '12px 16px' }}>
+                      <tr key={claim.id}>
+                        <td>
                           <span style={{
                             padding: '2px 8px',
                             borderRadius: '4px',
@@ -881,7 +931,7 @@ export const AdminPortal: React.FC = () => {
                             backgroundColor: 
                               claim.status === 'APPROVED_FOR_HANDOVER' ? 'var(--success-light)' :
                               claim.status === 'DISPUTED' ? 'var(--danger-light)' :
-                              claim.status === 'RESOLVED' ? 'var(--bg-color)' : 'var(--primary-light)',
+                              claim.status === 'RESOLVED' ? 'var(--bg-secondary)' : 'var(--primary-light)',
                             color: 
                               claim.status === 'APPROVED_FOR_HANDOVER' ? 'var(--success)' :
                               claim.status === 'DISPUTED' ? 'var(--danger)' :
@@ -890,7 +940,7 @@ export const AdminPortal: React.FC = () => {
                             {claim.status.replace(/_/g, ' ')}
                           </span>
                         </td>
-                        <td style={{ padding: '12px 16px' }}>
+                        <td>
                           <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>
                             {foundItem?.title || targetReportId.slice(0, 8)}
                           </div>
@@ -898,15 +948,15 @@ export const AdminPortal: React.FC = () => {
                             {foundItem?.campusZone || foundItem?.location || 'Campus Location'}
                           </div>
                         </td>
-                        <td style={{ padding: '12px 16px', maxWidth: '340px' }}>
-                          <div style={{ fontSize: '0.84rem', color: 'var(--text-main)', lineHeight: 1.4, backgroundColor: 'var(--bg-color)', padding: '6px 10px', borderRadius: '4px', border: '1px solid var(--border)' }}>
+                        <td style={{ maxWidth: '340px' }}>
+                          <div style={{ fontSize: '0.84rem', color: 'var(--text-main)', lineHeight: 1.4, backgroundColor: 'var(--bg-secondary)', padding: '6px 10px', borderRadius: '4px' }}>
                             "{claim.claimEvidence || claim.claim_evidence}"
                           </div>
                         </td>
-                        <td style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
+                        <td style={{ color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
                           {formatDateTime(claim.createdAt || claim.created_at)}
                         </td>
-                        <td style={{ padding: '12px 16px', textAlign: 'right' }}>
+                        <td style={{ textAlign: 'right' }}>
                           {claim.status === 'APPROVED_FOR_HANDOVER' ? (
                             <button
                               onClick={() => {
@@ -914,16 +964,15 @@ export const AdminPortal: React.FC = () => {
                                 setResolutionError(null);
                                 setIdVerified(false);
                               }}
-                              className="btn btn-primary"
-                              style={{ padding: '4px 10px', fontSize: '0.78rem' }}
+                              className="btn btn-primary btn-sm"
                             >
                               Authorize Handover
                             </button>
                           ) : (claim.status === 'REQUESTED' || claim.status === 'UNDER_REVIEW') ? (
                             <button
                               onClick={() => handleApproveClaim(claim.id)}
-                              className="btn btn-secondary"
-                              style={{ padding: '4px 10px', fontSize: '0.78rem', color: 'var(--primary)', borderColor: 'var(--primary)' }}
+                              className="btn btn-secondary btn-sm"
+                              style={{ color: 'var(--primary)', borderColor: 'var(--primary)' }}
                             >
                               Approve Claim
                             </button>
@@ -935,6 +984,78 @@ export const AdminPortal: React.FC = () => {
                 )}
               </tbody>
             </table>
+          </div>
+
+          {/* Claims Mobile Stacked Cards */}
+          <div className="mobile-only" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {claims.length === 0 ? (
+              <div className="card" style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                No claims currently submitted.
+              </div>
+            ) : (
+              claims.map(claim => {
+                const targetReportId = claim.foundReportId || claim.found_report_id || '';
+                const foundItem = reportById.get(targetReportId);
+                return (
+                  <div key={claim.id} className="record-card">
+                    <div className="record-card-row">
+                      <span style={{
+                        padding: '2px 8px',
+                        borderRadius: '4px',
+                        fontSize: '0.72rem',
+                        fontWeight: 700,
+                        backgroundColor: 
+                          claim.status === 'APPROVED_FOR_HANDOVER' ? 'var(--success-light)' :
+                          claim.status === 'DISPUTED' ? 'var(--danger-light)' :
+                          claim.status === 'RESOLVED' ? 'var(--bg-secondary)' : 'var(--primary-light)',
+                        color: 
+                          claim.status === 'APPROVED_FOR_HANDOVER' ? 'var(--success)' :
+                          claim.status === 'DISPUTED' ? 'var(--danger)' :
+                          claim.status === 'RESOLVED' ? 'var(--text-muted)' : 'var(--primary)'
+                      }}>
+                        {claim.status.replace(/_/g, ' ')}
+                      </span>
+                      <span style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
+                        {formatDateTime(claim.createdAt || claim.created_at)}
+                      </span>
+                    </div>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: '0.92rem', color: 'var(--text-main)' }}>
+                        {foundItem?.title || targetReportId.slice(0, 8)}
+                      </div>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                        {foundItem?.campusZone || foundItem?.location || 'Campus Location'}
+                      </div>
+                    </div>
+                    <div style={{ fontSize: '0.84rem', color: 'var(--text-main)', lineHeight: 1.4, backgroundColor: 'var(--bg-secondary)', padding: '8px 10px', borderRadius: '4px' }}>
+                      "{claim.claimEvidence || claim.claim_evidence}"
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '4px' }}>
+                      {claim.status === 'APPROVED_FOR_HANDOVER' ? (
+                        <button
+                          onClick={() => {
+                            setResolvingClaim(claim);
+                            setResolutionError(null);
+                            setIdVerified(false);
+                          }}
+                          className="btn btn-primary btn-sm"
+                        >
+                          Authorize Handover
+                        </button>
+                      ) : (claim.status === 'REQUESTED' || claim.status === 'UNDER_REVIEW') ? (
+                        <button
+                          onClick={() => handleApproveClaim(claim.id)}
+                          className="btn btn-secondary btn-sm"
+                          style={{ color: 'var(--primary)', borderColor: 'var(--primary)' }}
+                        >
+                          Approve Claim
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
       )}
@@ -1005,7 +1126,7 @@ export const AdminPortal: React.FC = () => {
           
           {/* Staff Allowlist Block */}
           <div className="card" style={{ padding: '24px', backgroundColor: '#FFFFFF', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
               <div>
                 <h3 style={{ fontSize: '1.1rem', fontWeight: 650, margin: '0 0 4px 0', color: 'var(--text-main)' }}>
                   Pre-Approved Staff & Desk Operator Allowlist
@@ -1016,64 +1137,106 @@ export const AdminPortal: React.FC = () => {
               </div>
               <button
                 onClick={() => setShowAddStaffModal(true)}
-                className="btn btn-primary"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', padding: '6px 14px' }}
+                className="btn btn-primary btn-sm"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
               >
                 <Plus size={15} /> Pre-Approve Staff
               </button>
             </div>
 
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.86rem' }}>
-              <thead>
-                <tr style={{ backgroundColor: 'var(--bg-color)', borderBottom: '1px solid var(--border)', color: 'var(--text-muted)', fontSize: '0.74rem', textTransform: 'uppercase' }}>
-                  <th style={{ padding: '10px 14px' }}>Name</th>
-                  <th style={{ padding: '10px 14px' }}>Email</th>
-                  <th style={{ padding: '10px 14px' }}>Department</th>
-                  <th style={{ padding: '10px 14px' }}>Role</th>
-                  <th style={{ padding: '10px 14px' }}>Status</th>
-                  <th style={{ padding: '10px 14px', textAlign: 'right' }}>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {staffAllowlist.length === 0 ? (
+            {/* Desktop Table */}
+            <div className="desktop-only table-wrapper">
+              <table className="table">
+                <thead>
                   <tr>
-                    <td colSpan={6} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                      No staff allowlist entries configured yet.
-                    </td>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Department</th>
+                    <th>Role</th>
+                    <th>Status</th>
+                    <th style={{ textAlign: 'right' }}>Action</th>
                   </tr>
-                ) : (
-                  staffAllowlist.map(entry => {
-                    const isStaffActive = entry.isActive ?? entry.is_active ?? true;
-                    return (
-                      <tr key={entry.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                        <td style={{ padding: '10px 14px', fontWeight: 600 }}>{entry.name}</td>
-                        <td style={{ padding: '10px 14px', color: 'var(--text-secondary)' }}>{entry.email}</td>
-                        <td style={{ padding: '10px 14px', color: 'var(--text-secondary)' }}>{entry.department}</td>
-                        <td style={{ padding: '10px 14px' }}>
-                          <span style={{ fontSize: '0.74rem', fontWeight: 650, padding: '2px 6px', borderRadius: '4px', backgroundColor: entry.role === 'desk_operator' ? 'var(--primary-light)' : 'var(--bg-color)', color: entry.role === 'desk_operator' ? 'var(--primary)' : 'var(--text-main)' }}>
-                            {entry.role}
-                          </span>
-                        </td>
-                        <td style={{ padding: '10px 14px' }}>
-                          <span style={{ color: isStaffActive ? 'var(--success)' : 'var(--danger)', fontWeight: 600, fontSize: '0.78rem' }}>
-                            {isStaffActive ? 'ACTIVE' : 'INACTIVE'}
-                          </span>
-                        </td>
-                        <td style={{ padding: '10px 14px', textAlign: 'right' }}>
-                          <button
-                            onClick={() => handleToggleStaffStatus(entry.id, isStaffActive)}
-                            className="btn btn-secondary"
-                            style={{ padding: '3px 8px', fontSize: '0.74rem' }}
-                          >
-                            {isStaffActive ? 'Deactivate' : 'Reactivate'}
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {staffAllowlist.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                        No staff allowlist entries configured yet.
+                      </td>
+                    </tr>
+                  ) : (
+                    staffAllowlist.map(entry => {
+                      const isStaffActive = entry.isActive ?? entry.is_active ?? true;
+                      return (
+                        <tr key={entry.id}>
+                          <td style={{ fontWeight: 600 }}>{entry.name}</td>
+                          <td style={{ color: 'var(--text-secondary)' }}>{entry.email}</td>
+                          <td style={{ color: 'var(--text-secondary)' }}>{entry.department}</td>
+                          <td>
+                            <span style={{ fontSize: '0.74rem', fontWeight: 650, padding: '2px 6px', borderRadius: '4px', backgroundColor: entry.role === 'desk_operator' ? 'var(--primary-light)' : 'var(--bg-secondary)', color: entry.role === 'desk_operator' ? 'var(--primary)' : 'var(--text-main)' }}>
+                              {entry.role}
+                            </span>
+                          </td>
+                          <td>
+                            <span style={{ color: isStaffActive ? 'var(--success)' : 'var(--danger)', fontWeight: 600, fontSize: '0.78rem' }}>
+                              {isStaffActive ? 'ACTIVE' : 'INACTIVE'}
+                            </span>
+                          </td>
+                          <td style={{ textAlign: 'right' }}>
+                            <button
+                              onClick={() => handleToggleStaffStatus(entry.id, isStaffActive)}
+                              className="btn btn-secondary btn-sm"
+                              style={{ padding: '3px 8px', fontSize: '0.74rem' }}
+                            >
+                              {isStaffActive ? 'Deactivate' : 'Reactivate'}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile Stacked Cards */}
+            <div className="mobile-only" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {staffAllowlist.length === 0 ? (
+                <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.84rem' }}>
+                  No staff allowlist entries configured yet.
+                </div>
+              ) : (
+                staffAllowlist.map(entry => {
+                  const isStaffActive = entry.isActive ?? entry.is_active ?? true;
+                  return (
+                    <div key={entry.id} className="record-card">
+                      <div className="record-card-row">
+                        <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-main)' }}>{entry.name}</span>
+                        <span style={{ color: isStaffActive ? 'var(--success)' : 'var(--danger)', fontWeight: 600, fontSize: '0.76rem' }}>
+                          {isStaffActive ? 'ACTIVE' : 'INACTIVE'}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{entry.email}</div>
+                      <div className="record-card-row" style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                        <span>Dept: {entry.department}</span>
+                        <span style={{ padding: '2px 6px', borderRadius: '4px', backgroundColor: entry.role === 'desk_operator' ? 'var(--primary-light)' : 'var(--bg-secondary)', color: entry.role === 'desk_operator' ? 'var(--primary)' : 'var(--text-main)', fontWeight: 600 }}>
+                          {entry.role}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '4px' }}>
+                        <button
+                          onClick={() => handleToggleStaffStatus(entry.id, isStaffActive)}
+                          className="btn btn-secondary btn-sm"
+                          style={{ padding: '4px 10px', fontSize: '0.78rem' }}
+                        >
+                          {isStaffActive ? 'Deactivate' : 'Reactivate'}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </div>
 
           {/* Memberships Table */}
@@ -1085,137 +1248,238 @@ export const AdminPortal: React.FC = () => {
               Database RLS verifies active membership on every report write and claim submission.
             </p>
 
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.86rem' }}>
-              <thead>
-                <tr style={{ backgroundColor: 'var(--bg-color)', borderBottom: '1px solid var(--border)', color: 'var(--text-muted)', fontSize: '0.74rem', textTransform: 'uppercase' }}>
-                  <th style={{ padding: '10px 14px' }}>User ID</th>
-                  <th style={{ padding: '10px 14px' }}>Type</th>
-                  <th style={{ padding: '10px 14px' }}>Status</th>
-                  <th style={{ padding: '10px 14px' }}>Approved At</th>
-                  <th style={{ padding: '10px 14px', textAlign: 'right' }}>Authorization Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {memberships.length === 0 ? (
+            {/* Desktop Table */}
+            <div className="desktop-only table-wrapper">
+              <table className="table">
+                <thead>
                   <tr>
-                    <td colSpan={5} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                      No active memberships recorded.
-                    </td>
+                    <th>User ID</th>
+                    <th>Type</th>
+                    <th>Status</th>
+                    <th>Approved At</th>
+                    <th style={{ textAlign: 'right' }}>Authorization Action</th>
                   </tr>
-                ) : (
-                  memberships.map(mem => {
-                    const memUserId = mem.userId || mem.user_id || '';
-                    const memType = mem.membershipType || mem.membership_type || 'student';
-                    return (
-                      <tr key={mem.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                        <td style={{ padding: '10px 14px', fontFamily: 'var(--font-mono)', fontSize: '0.78rem' }}>
-                          {memUserId.slice(0, 16)}...
-                        </td>
-                        <td style={{ padding: '10px 14px', fontWeight: 600 }}>
-                          {memType.toUpperCase()}
-                        </td>
-                        <td style={{ padding: '10px 14px' }}>
-                          <span style={{
-                            padding: '2px 6px',
-                            borderRadius: '4px',
-                            fontSize: '0.72rem',
-                            fontWeight: 700,
-                            backgroundColor: mem.status === 'ACTIVE' ? 'var(--success-light)' : 'var(--danger-light)',
-                            color: mem.status === 'ACTIVE' ? 'var(--success)' : 'var(--danger)'
-                          }}>
-                            {mem.status}
-                          </span>
-                        </td>
-                        <td style={{ padding: '10px 14px', color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
-                          {formatDateTime(mem.approvedAt || mem.approved_at || mem.createdAt || mem.created_at)}
-                        </td>
-                        <td style={{ padding: '10px 14px', textAlign: 'right' }}>
-                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                            {memType !== 'admin' && (
-                              <button
-                                onClick={() => handleToggleMembershipStatus(memUserId, mem.status)}
-                                className="btn btn-secondary"
-                                style={{ padding: '3px 8px', fontSize: '0.74rem', color: mem.status === 'ACTIVE' ? 'var(--danger)' : 'var(--success)' }}
-                              >
-                                {mem.status === 'ACTIVE' ? 'Suspend' : 'Reactivate'}
-                              </button>
-                            )}
-                            {memType === 'desk_operator' && (
-                              <button
-                                onClick={() => handleSetMembershipRole(memUserId, 'staff')}
-                                className="btn btn-secondary"
-                                style={{ padding: '3px 8px', fontSize: '0.74rem' }}
-                                title="Revoke desk operator authorization"
-                              >
-                                Revoke Desk
-                              </button>
-                            )}
-                            {(memType === 'staff' || memType === 'student') && (
-                              <button
-                                onClick={() => handleSetMembershipRole(memUserId, 'desk_operator')}
-                                className="btn btn-secondary"
-                                style={{ padding: '3px 8px', fontSize: '0.74rem', color: 'var(--primary)' }}
-                                title="Grant desk operator authorization"
-                              >
-                                Grant Desk
-                              </button>
-                            )}
-                            {memType === 'admin' && (
-                              <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', fontWeight: 600 }}>
-                                Admin Protected
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {memberships.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                        No active memberships recorded.
+                      </td>
+                    </tr>
+                  ) : (
+                    memberships.map(mem => {
+                      const memUserId = mem.userId || mem.user_id || '';
+                      const memType = mem.membershipType || mem.membership_type || 'student';
+                      return (
+                        <tr key={mem.id}>
+                          <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem' }}>
+                            {memUserId.slice(0, 16)}...
+                          </td>
+                          <td style={{ fontWeight: 600 }}>
+                            {memType.toUpperCase()}
+                          </td>
+                          <td>
+                            <span style={{
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              fontSize: '0.72rem',
+                              fontWeight: 700,
+                              backgroundColor: mem.status === 'ACTIVE' ? 'var(--success-light)' : 'var(--danger-light)',
+                              color: mem.status === 'ACTIVE' ? 'var(--success)' : 'var(--danger)'
+                            }}>
+                              {mem.status}
+                            </span>
+                          </td>
+                          <td style={{ color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
+                            {formatDateTime(mem.approvedAt || mem.approved_at || mem.createdAt || mem.created_at)}
+                          </td>
+                          <td style={{ textAlign: 'right' }}>
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                              {memType !== 'admin' && (
+                                <button
+                                  onClick={() => handleToggleMembershipStatus(memUserId, mem.status)}
+                                  className="btn btn-secondary btn-sm"
+                                  style={{ padding: '3px 8px', fontSize: '0.74rem', color: mem.status === 'ACTIVE' ? 'var(--danger)' : 'var(--success)' }}
+                                >
+                                  {mem.status === 'ACTIVE' ? 'Suspend' : 'Reactivate'}
+                                </button>
+                              )}
+                              {memType === 'desk_operator' && (
+                                <button
+                                  onClick={() => handleSetMembershipRole(memUserId, 'staff')}
+                                  className="btn btn-secondary btn-sm"
+                                  style={{ padding: '3px 8px', fontSize: '0.74rem' }}
+                                  title="Revoke desk operator authorization"
+                                >
+                                  Revoke Desk
+                                </button>
+                              )}
+                              {(memType === 'staff' || memType === 'student') && (
+                                <button
+                                  onClick={() => handleSetMembershipRole(memUserId, 'desk_operator')}
+                                  className="btn btn-secondary btn-sm"
+                                  style={{ padding: '3px 8px', fontSize: '0.74rem', color: 'var(--primary)' }}
+                                  title="Grant desk operator authorization"
+                                >
+                                  Grant Desk
+                                </button>
+                              )}
+                              {memType === 'admin' && (
+                                <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+                                  Admin Protected
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile Stacked Cards */}
+            <div className="mobile-only" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {memberships.length === 0 ? (
+                <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.84rem' }}>
+                  No active memberships recorded.
+                </div>
+              ) : (
+                memberships.map(mem => {
+                  const memUserId = mem.userId || mem.user_id || '';
+                  const memType = mem.membershipType || mem.membership_type || 'student';
+                  return (
+                    <div key={mem.id} className="record-card">
+                      <div className="record-card-row">
+                        <span style={{ fontWeight: 600, fontSize: '0.88rem' }}>{memType.toUpperCase()}</span>
+                        <span style={{
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          fontSize: '0.72rem',
+                          fontWeight: 700,
+                          backgroundColor: mem.status === 'ACTIVE' ? 'var(--success-light)' : 'var(--danger-light)',
+                          color: mem.status === 'ACTIVE' ? 'var(--success)' : 'var(--danger)'
+                        }}>
+                          {mem.status}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+                        ID: {memUserId.slice(0, 20)}...
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px', marginTop: '6px' }}>
+                        {memType !== 'admin' && (
+                          <button
+                            onClick={() => handleToggleMembershipStatus(memUserId, mem.status)}
+                            className="btn btn-secondary btn-sm"
+                            style={{ padding: '3px 8px', fontSize: '0.74rem', color: mem.status === 'ACTIVE' ? 'var(--danger)' : 'var(--success)' }}
+                          >
+                            {mem.status === 'ACTIVE' ? 'Suspend' : 'Reactivate'}
+                          </button>
+                        )}
+                        {memType === 'desk_operator' && (
+                          <button
+                            onClick={() => handleSetMembershipRole(memUserId, 'staff')}
+                            className="btn btn-secondary btn-sm"
+                            style={{ padding: '3px 8px', fontSize: '0.74rem' }}
+                          >
+                            Revoke Desk
+                          </button>
+                        )}
+                        {(memType === 'staff' || memType === 'student') && (
+                          <button
+                            onClick={() => handleSetMembershipRole(memUserId, 'desk_operator')}
+                            className="btn btn-secondary btn-sm"
+                            style={{ padding: '3px 8px', fontSize: '0.74rem', color: 'var(--primary)' }}
+                          >
+                            Grant Desk
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </div>
         </div>
       )}
 
       {/* SECTION 5: AUDIT LOGS */}
       {activeSection === 'audit' && (
-        <div className="card" style={{ backgroundColor: '#FFFFFF', borderRadius: 'var(--radius)', border: '1px solid var(--border)', overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.86rem' }}>
-            <thead>
-              <tr style={{ backgroundColor: 'var(--bg-color)', borderBottom: '1px solid var(--border)', color: 'var(--text-muted)', fontSize: '0.74rem', textTransform: 'uppercase' }}>
-                <th style={{ padding: '10px 14px' }}>Timestamp</th>
-                <th style={{ padding: '10px 14px' }}>Action</th>
-                <th style={{ padding: '10px 14px' }}>Target ID</th>
-                <th style={{ padding: '10px 14px' }}>Details</th>
-              </tr>
-            </thead>
-            <tbody>
-              {auditLogs.length === 0 ? (
+        <div>
+          {/* Desktop Table */}
+          <div className="desktop-only table-wrapper card" style={{ backgroundColor: '#FFFFFF', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
+            <table className="table">
+              <thead>
                 <tr>
-                  <td colSpan={4} style={{ padding: '36px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                    No audit records logged yet.
-                  </td>
+                  <th>Timestamp</th>
+                  <th>Action</th>
+                  <th>Target ID</th>
+                  <th>Details</th>
                 </tr>
-              ) : (
-                auditLogs.map(log => (
-                  <tr key={log.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                    <td style={{ padding: '10px 14px', color: 'var(--text-secondary)', fontSize: '0.78rem', whiteSpace: 'nowrap' }}>
-                      {formatDateTime(log.created_at)}
-                    </td>
-                    <td style={{ padding: '10px 14px', fontWeight: 650, fontFamily: 'var(--font-mono)', fontSize: '0.78rem' }}>
-                      {log.action}
-                    </td>
-                    <td style={{ padding: '10px 14px', fontFamily: 'var(--font-mono)', fontSize: '0.76rem', color: 'var(--text-muted)' }}>
-                      {log.target_id ? log.target_id.slice(0, 12) + '...' : '—'}
-                    </td>
-                    <td style={{ padding: '10px 14px', color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
-                      {log.details ? JSON.stringify(log.details) : '—'}
+              </thead>
+              <tbody>
+                {auditLogs.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} style={{ padding: '36px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                      No audit records logged yet.
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                ) : (
+                  auditLogs.map(log => (
+                    <tr key={log.id}>
+                      <td style={{ color: 'var(--text-secondary)', fontSize: '0.78rem', whiteSpace: 'nowrap' }}>
+                        {formatDateTime(log.created_at)}
+                      </td>
+                      <td style={{ fontWeight: 650, fontFamily: 'var(--font-mono)', fontSize: '0.78rem' }}>
+                        {log.action}
+                      </td>
+                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+                        {log.target_id ? log.target_id.slice(0, 12) + '...' : '—'}
+                      </td>
+                      <td style={{ color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
+                        {log.details ? JSON.stringify(log.details) : '—'}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile Stacked Cards */}
+          <div className="mobile-only" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {auditLogs.length === 0 ? (
+              <div className="card" style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                No audit records logged yet.
+              </div>
+            ) : (
+              auditLogs.map(log => (
+                <div key={log.id} className="record-card">
+                  <div className="record-card-row">
+                    <span style={{ fontWeight: 650, fontSize: '0.82rem', fontFamily: 'var(--font-mono)', color: 'var(--primary)' }}>
+                      {log.action}
+                    </span>
+                    <span style={{ fontSize: '0.74rem', color: 'var(--text-tertiary)' }}>
+                      {formatDateTime(log.created_at)}
+                    </span>
+                  </div>
+                  {log.target_id && (
+                    <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+                      Target: {log.target_id}
+                    </div>
+                  )}
+                  {log.details && (
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', backgroundColor: 'var(--bg-secondary)', padding: '6px 8px', borderRadius: '4px', overflowWrap: 'anywhere' }}>
+                      {JSON.stringify(log.details)}
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
         </div>
       )}
 
@@ -1359,70 +1623,61 @@ export const AdminPortal: React.FC = () => {
         </div>
       )}
 
-      {/* REPORT DETAILS ASIDE MODAL */}
-      <AnimatePresence>
-        {selectedReport && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0, 0, 0, 0.45)', zIndex: 1000, display: 'flex', justifyContent: 'flex-end' }}
-            onClick={() => setSelectedId(null)}
+      {/* REPORT DETAILS ASIDE DRAWER */}
+      {selectedReport && (
+        <div
+          style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0, 0, 0, 0.4)', zIndex: 1000, display: 'flex', justifyContent: 'flex-end' }}
+          onClick={() => setSelectedId(null)}
+        >
+          <aside
+            style={{ width: '100%', maxWidth: '480px', height: '100%', backgroundColor: 'var(--bg-surface)', padding: '24px', overflowY: 'auto', borderLeft: '1px solid var(--border)' }}
+            onClick={(e) => e.stopPropagation()}
           >
-            <motion.aside
-              initial={{ x: '100%' }}
-              animate={{ x: 0 }}
-              exit={{ x: '100%' }}
-              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              style={{ width: '100%', maxWidth: '520px', height: '100%', backgroundColor: '#FFFFFF', padding: '28px', overflowY: 'auto', borderLeft: '1px solid var(--border)' }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
-                <span style={{ fontSize: '0.75rem', fontWeight: 700, padding: '2px 8px', borderRadius: '4px', backgroundColor: selectedReport.status === 'resolved' ? 'var(--bg-color)' : 'var(--primary-light)', color: selectedReport.status === 'resolved' ? 'var(--text-muted)' : 'var(--primary)' }}>
-                  {selectedReport.status.toUpperCase()} RECORD
-                </span>
-                <button onClick={() => setSelectedId(null)} className="btn btn-ghost" style={{ padding: '4px' }}>
-                  <X size={18} />
-                </button>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
+              <span className="badge badge-found">
+                {selectedReport.status.toUpperCase()} RECORD
+              </span>
+              <button onClick={() => setSelectedId(null)} className="btn btn-ghost" style={{ padding: '4px' }} aria-label="Close details">
+                <X size={18} />
+              </button>
+            </div>
+
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-main)', margin: '0 0 16px 0' }}>
+              {selectedReport.title}
+            </h2>
+
+            {/* Image Preview */}
+            {(selectedReport.imagePath || selectedReport.imageUrl) && (
+              <div style={{ height: '200px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-xs)', overflow: 'hidden', marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {imageLoading ? (
+                  <Loader2 size={24} className="spin-loader" style={{ color: 'var(--primary)' }} />
+                ) : selectedImageUrl && !imageFailed ? (
+                  <img src={selectedImageUrl} alt={selectedReport.title} onError={() => setImageFailed(true)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                ) : (
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Image unavailable</span>
+                )}
               </div>
+            )}
 
-              <h2 style={{ fontSize: '1.4rem', fontWeight: 650, color: 'var(--text-main)', margin: '0 0 16px 0' }}>
-                {selectedReport.title}
-              </h2>
-
-              {/* Image Preview */}
-              {(selectedReport.imagePath || selectedReport.imageUrl) && (
-                <div style={{ height: '200px', backgroundColor: 'var(--bg-color)', borderRadius: '6px', overflow: 'hidden', marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  {imageLoading ? (
-                    <Loader2 size={24} style={{ animation: 'spin 1s linear infinite', color: 'var(--primary)' }} />
-                  ) : selectedImageUrl && !imageFailed ? (
-                    <img src={selectedImageUrl} alt={selectedReport.title} onError={() => setImageFailed(true)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  ) : (
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Image unavailable</span>
-                  )}
-                </div>
-              )}
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '0.86rem', color: 'var(--text-main)' }}>
-                <div><strong>Category:</strong> {selectedReport.category}</div>
-                <div><strong>Location / Zone:</strong> {selectedReport.campusZone || selectedReport.location}</div>
-                <div><strong>Date:</strong> {formatDate(selectedReport.date)}</div>
-                <div><strong>Reporter:</strong> {selectedReport.reporterName}</div>
-                {selectedReport.brandModel && <div><strong>Brand / Model:</strong> {selectedReport.brandModel}</div>}
-                {selectedReport.color && <div><strong>Color:</strong> {selectedReport.color}</div>}
-                {selectedReport.distinguishingFeatures && <div><strong>Distinguishing Marks:</strong> {selectedReport.distinguishingFeatures}</div>}
-                {selectedReport.custodyStatus && <div><strong>Custody Status:</strong> {selectedReport.custodyStatus}</div>}
-                <div style={{ marginTop: '8px' }}>
-                  <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', fontWeight: 650, textTransform: 'uppercase', marginBottom: '4px' }}>Description</div>
-                  <div style={{ backgroundColor: 'var(--bg-color)', padding: '10px', borderRadius: '4px', border: '1px solid var(--border)', lineHeight: 1.5 }}>
-                    {selectedReport.description}
-                  </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.86rem', color: 'var(--text-main)' }}>
+              <div><strong>Category:</strong> {selectedReport.category}</div>
+              <div><strong>Location / Zone:</strong> {selectedReport.campusZone || selectedReport.location}</div>
+              <div><strong>Date:</strong> {formatDate(selectedReport.date)}</div>
+              <div><strong>Reporter:</strong> {selectedReport.reporterName}</div>
+              {selectedReport.brandModel && <div><strong>Brand / Model:</strong> {selectedReport.brandModel}</div>}
+              {selectedReport.color && <div><strong>Color:</strong> {selectedReport.color}</div>}
+              {selectedReport.distinguishingFeatures && <div><strong>Distinguishing Marks:</strong> {selectedReport.distinguishingFeatures}</div>}
+              {selectedReport.custodyStatus && <div><strong>Custody Status:</strong> {selectedReport.custodyStatus}</div>}
+              <div style={{ marginTop: '8px' }}>
+                <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', fontWeight: 600, marginBottom: '4px' }}>Description</div>
+                <div style={{ backgroundColor: 'var(--bg-secondary)', padding: '10px', borderRadius: 'var(--radius-xs)', border: '1px solid var(--border)', lineHeight: 1.5 }}>
+                  {selectedReport.description}
                 </div>
               </div>
-            </motion.aside>
-          </motion.div>
-        )}
-      </AnimatePresence>
+            </div>
+          </aside>
+        </div>
+      )}
     </div>
   );
 };

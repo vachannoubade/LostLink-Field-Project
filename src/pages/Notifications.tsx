@@ -3,9 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useData } from '../store/DataContext';
 import { 
   Bell, BellOff, Check, CheckCheck, Sparkles, 
-  Clock, ArrowRight, ExternalLink, AlertCircle, Info 
+  ArrowRight, AlertCircle
 } from 'lucide-react';
-import { motion } from 'framer-motion';
 
 const getNotificationIcon = (title: string, message: string) => {
   const text = `${title} ${message}`.toLowerCase();
@@ -47,7 +46,7 @@ export const Notifications: React.FC = () => {
         isReport: true,
         reportExists,
         url: link,
-        label: reportExists ? 'View Item Details' : 'Item No Longer Available'
+        label: reportExists ? 'View Item' : 'Item No Longer Available'
       };
     }
 
@@ -57,7 +56,7 @@ export const Notifications: React.FC = () => {
         isReport: false,
         reportExists: true,
         url: link,
-        label: 'View Potential Matches'
+        label: 'View Matches'
       };
     }
 
@@ -78,86 +77,74 @@ export const Notifications: React.FC = () => {
   };
 
   return (
-    <div style={{ paddingBottom: '40px', maxWidth: '800px', margin: '0 auto' }}>
+    <div style={{ maxWidth: '780px', margin: '0 auto', paddingBottom: '48px' }}>
       {/* Page Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px', marginBottom: '24px' }}>
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <h1 className="page-title" style={{ marginBottom: 0 }}>Notifications</h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <h1 className="page-title" style={{ margin: 0 }}>Notifications</h1>
             {unreadCount > 0 && (
-              <span className="badge badge-lost" style={{ backgroundColor: 'var(--primary-light)', color: 'var(--primary)' }}>
+              <span className="badge badge-found">
                 {unreadCount} unread
               </span>
             )}
           </div>
-          <p className="page-subtitle" style={{ marginBottom: 0, marginTop: '4px' }}>
+          <p className="page-subtitle" style={{ margin: '4px 0 0' }}>
             Updates on potential item matches and status changes.
           </p>
         </div>
 
         {notifications.length > 0 && (
           <button 
-            className="btn btn-secondary"
+            className="btn btn-secondary btn-sm"
             onClick={markAllNotificationsRead}
             disabled={unreadCount === 0}
             style={{ 
               opacity: unreadCount === 0 ? 0.6 : 1, 
-              cursor: unreadCount === 0 ? 'default' : 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '8px'
+              cursor: unreadCount === 0 ? 'default' : 'pointer'
             }}
             aria-label="Mark all notifications as read"
           >
-            <CheckCheck size={16} />
-            Mark all as read
+            <CheckCheck size={15} />
+            Mark all read
           </button>
         )}
       </div>
 
       {/* Notifications List or Empty State */}
       {sortedNotifications.length === 0 ? (
-        <motion.div 
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
+        <div 
           className="card" 
-          style={{ padding: '80px 24px', textAlign: 'center' }}
+          style={{ padding: '64px 20px', textAlign: 'center', backgroundColor: 'var(--bg-surface)' }}
         >
-          <div style={{ width: '80px', height: '80px', borderRadius: '50%', backgroundColor: 'var(--bg-color)', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
-            <BellOff size={38} />
-          </div>
-          <h2 style={{ fontSize: '1.25rem', marginBottom: '8px', color: 'var(--text-main)' }}>No notifications yet</h2>
-          <p style={{ color: 'var(--text-muted)', maxWidth: '380px', margin: '0 auto 24px', fontSize: '0.95rem' }}>
-            You're all caught up! You will be notified when matches are found for your reported items.
+          <BellOff size={36} style={{ color: 'var(--text-tertiary)', margin: '0 auto 12px' }} />
+          <h2 style={{ fontSize: '1.05rem', fontWeight: 600, marginBottom: '4px', color: 'var(--text-main)' }}>No notifications yet</h2>
+          <p style={{ color: 'var(--text-secondary)', maxWidth: '360px', margin: '0 auto 20px', fontSize: '0.88rem' }}>
+            You're all caught up! You will be notified when matches or status changes occur.
           </p>
-          <button className="btn btn-primary" onClick={() => navigate('/browse')}>
+          <button className="btn btn-secondary btn-sm" onClick={() => navigate('/browse')}>
             Browse Items
           </button>
-        </motion.div>
+        </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {sortedNotifications.map((notification, index) => {
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          {sortedNotifications.map((notification) => {
             const IconComponent = getNotificationIcon(notification.title, notification.message);
             const linkMeta = getLinkMeta(notification.link);
             const isClickable = linkMeta.hasLink && linkMeta.reportExists;
 
             return (
-              <motion.div
+              <div
                 key={notification.id}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.04 }}
                 className="card"
                 style={{
-                  padding: '20px',
+                  padding: '16px',
                   display: 'flex',
                   alignItems: 'flex-start',
-                  gap: '16px',
-                  backgroundColor: notification.read ? 'var(--bg-card)' : 'rgba(81, 70, 229, 0.02)',
-                  borderColor: notification.read ? 'var(--border)' : 'var(--primary-light)',
-                  boxShadow: notification.read ? 'var(--shadow-sm)' : '0 4px 12px rgba(81, 70, 229, 0.06)',
-                  cursor: isClickable ? 'pointer' : 'default',
-                  transition: 'var(--transition)'
+                  gap: '14px',
+                  backgroundColor: notification.read ? 'var(--bg-surface)' : 'var(--bg-surface)',
+                  borderLeft: notification.read ? '1px solid var(--border)' : '3px solid var(--primary)',
+                  cursor: isClickable ? 'pointer' : 'default'
                 }}
                 onClick={() => handleNotificationClick(notification.id, linkMeta)}
                 role={isClickable ? 'button' : undefined}
@@ -173,112 +160,55 @@ export const Notifications: React.FC = () => {
                 {/* Icon Column */}
                 <div 
                   style={{ 
-                    width: '42px', 
-                    height: '42px', 
-                    borderRadius: '12px', 
-                    backgroundColor: notification.read ? 'var(--bg-color)' : 'var(--primary-light)', 
-                    color: notification.read ? 'var(--text-muted)' : 'var(--primary)', 
+                    width: '36px', 
+                    height: '36px', 
+                    borderRadius: 'var(--radius-sm)', 
+                    backgroundColor: notification.read ? 'var(--bg-secondary)' : 'var(--primary-light)', 
+                    color: notification.read ? 'var(--text-secondary)' : 'var(--primary)', 
                     display: 'flex', 
                     alignItems: 'center', 
-                    justifyContent: 'center',
-                    flexShrink: 0
+                    justifyContent: 'center', 
+                    flexShrink: 0 
                   }}
                 >
-                  <IconComponent size={20} />
+                  <IconComponent size={18} />
                 </div>
 
                 {/* Content Column */}
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '6px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontSize: '1rem', fontWeight: notification.read ? 600 : 700, color: 'var(--text-main)' }}>
-                        {notification.title}
-                      </span>
-                      {!notification.read && (
-                        <span 
-                          style={{ 
-                            width: '8px', 
-                            height: '8px', 
-                            borderRadius: '50%', 
-                            backgroundColor: 'var(--primary)',
-                            display: 'inline-block'
-                          }} 
-                          title="Unread"
-                        />
-                      )}
-                    </div>
-
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-muted)', fontSize: '0.8rem', flexShrink: 0 }}>
-                      <Clock size={12} />
-                      <span>{formatTimestamp(notification.createdAt)}</span>
-                    </div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '4px' }}>
+                    <h3 style={{ 
+                      fontSize: '0.92rem', 
+                      fontWeight: notification.read ? 500 : 600, 
+                      color: 'var(--text-main)', 
+                      margin: 0,
+                      overflowWrap: 'anywhere'
+                    }}>
+                      {notification.title}
+                    </h3>
+                    <span style={{ fontSize: '0.74rem', color: 'var(--text-tertiary)', flexShrink: 0 }}>
+                      {formatTimestamp(notification.createdAt)}
+                    </span>
                   </div>
 
-                  <p style={{ color: notification.read ? 'var(--text-muted)' : 'var(--text-main)', fontSize: '0.9rem', lineHeight: 1.5, marginBottom: '12px' }}>
+                  <p style={{ 
+                    fontSize: '0.84rem', 
+                    color: 'var(--text-secondary)', 
+                    lineHeight: 1.45, 
+                    margin: 0,
+                    overflowWrap: 'anywhere'
+                  }}>
                     {notification.message}
                   </p>
 
-                  {/* Actions Row */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
-                    <div>
-                      {linkMeta.hasLink && (
-                        linkMeta.reportExists ? (
-                          <span 
-                            style={{ 
-                              display: 'inline-flex', 
-                              alignItems: 'center', 
-                              gap: '6px', 
-                              color: 'var(--primary)', 
-                              fontSize: '0.85rem', 
-                              fontWeight: 600 
-                            }}
-                          >
-                            {linkMeta.label}
-                            {linkMeta.isReport ? <ArrowRight size={14} /> : <ExternalLink size={14} />}
-                          </span>
-                        ) : (
-                          <span 
-                            style={{ 
-                              display: 'inline-flex', 
-                              alignItems: 'center', 
-                              gap: '4px', 
-                              color: 'var(--text-muted)', 
-                              fontSize: '0.8rem',
-                              fontStyle: 'italic'
-                            }}
-                          >
-                            <Info size={13} />
-                            {linkMeta.label}
-                          </span>
-                        )
-                      )}
+                  {isClickable && (
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.78rem', color: 'var(--primary)', fontWeight: 500, marginTop: '8px' }}>
+                      <span>{linkMeta.label}</span>
+                      <ArrowRight size={13} />
                     </div>
-
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      {!notification.read ? (
-                        <button
-                          type="button"
-                          className="btn btn-ghost"
-                          style={{ fontSize: '0.8rem', padding: '6px 10px', height: 'auto', color: 'var(--primary)' }}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            markNotificationRead(notification.id);
-                          }}
-                          aria-label={`Mark "${notification.title}" as read`}
-                        >
-                          <Check size={14} />
-                          Mark read
-                        </button>
-                      ) : (
-                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                          <Check size={12} />
-                          Read
-                        </span>
-                      )}
-                    </div>
-                  </div>
+                  )}
                 </div>
-              </motion.div>
+              </div>
             );
           })}
         </div>

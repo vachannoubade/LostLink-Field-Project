@@ -8,7 +8,6 @@ import {
   AlertCircle, CheckCircle2, ArrowRight, ArrowLeft,
   KeyRound, RefreshCw
 } from 'lucide-react';
-import { motion } from 'framer-motion';
 
 export const Auth: React.FC<{ defaultMode?: 'login' | 'signup' }> = ({ defaultMode = 'login' }) => {
   const [searchParams] = useSearchParams();
@@ -80,13 +79,11 @@ export const Auth: React.FC<{ defaultMode?: 'login' | 'signup' }> = ({ defaultMo
         aria-live="polite"
         aria-busy="true"
       >
-        <motion.div
-          animate={{ scale: [1, 1.1, 1], rotate: [0, 5, -5, 0] }}
-          transition={{ repeat: Infinity, duration: 1.5, ease: 'easeInOut' }}
+        <div
           style={{
-            width: '64px',
-            height: '64px',
-            borderRadius: '16px',
+            width: '48px',
+            height: '48px',
+            borderRadius: 'var(--radius-sm)',
             backgroundColor: 'var(--primary-light)',
             color: 'var(--primary)',
             display: 'flex',
@@ -94,9 +91,9 @@ export const Auth: React.FC<{ defaultMode?: 'login' | 'signup' }> = ({ defaultMo
             justifyContent: 'center'
           }}
         >
-          <PackageSearch size={32} />
-        </motion.div>
-        <div style={{ color: 'var(--text-muted)', fontSize: '0.95rem', fontWeight: 500 }}>
+          <PackageSearch size={26} />
+        </div>
+        <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem', fontWeight: 500 }}>
           Checking session...
         </div>
       </div>
@@ -360,9 +357,7 @@ export const Auth: React.FC<{ defaultMode?: 'login' | 'signup' }> = ({ defaultMo
       )}
 
       {/* Auth Card */}
-      <motion.div 
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
+      <div 
         className="card auth-card" 
         style={{ padding: '32px' }}
       >
@@ -835,7 +830,25 @@ export const Auth: React.FC<{ defaultMode?: 'login' | 'signup' }> = ({ defaultMo
             </>
           )}
         </div>
-      </motion.div>
+
+        {/* Public Admin Sign In Entry Point (Mandatory) */}
+        <div style={{
+          marginTop: '24px',
+          paddingTop: '16px',
+          borderTop: '1px solid var(--border)',
+          textAlign: 'center',
+          fontSize: '0.84rem',
+          color: 'var(--text-secondary)'
+        }}>
+          Campus staff or administrator?{' '}
+          <Link
+            to="/admin/login"
+            style={{ color: 'var(--primary)', fontWeight: 600, textDecoration: 'none' }}
+          >
+            Admin sign in →
+          </Link>
+        </div>
+      </div>
 
       {/* Back to Browse link */}
       <div style={{ textAlign: 'center', marginTop: '24px' }}>

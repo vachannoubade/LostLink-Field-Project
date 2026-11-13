@@ -2,10 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useData } from '../store/DataContext';
 import { ItemCard } from '../components/ItemCard';
-import { Search, Filter, X, Loader2, AlertCircle, RotateCcw, Compass } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { Search, X, Loader2, AlertCircle, RotateCcw, PackageSearch } from 'lucide-react';
 import type { Category } from '../types';
-import { getCategoryIllustration } from '../utils/categoryArt';
 
 export const BrowseItems: React.FC = () => {
   const { reports, loading, error } = useData();
@@ -74,19 +72,15 @@ export const BrowseItems: React.FC = () => {
   }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   return (
-    <div style={{ paddingBottom: '48px' }}>
-      {/* Editorial Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px', marginBottom: '28px' }}>
+    <div style={{ maxWidth: '1040px', margin: '0 auto', paddingBottom: '48px' }}>
+      {/* Clean Page Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px', marginBottom: '24px' }}>
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-            <span className="mono-token mono-token-amber">REGISTRY CATALOG</span>
-            <span className="mono-token mono-token-subtle">VOL. 2026 // CAMPUS SPECIMEN INDEX</span>
-          </div>
-          <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '2.5rem', fontWeight: 600, color: 'var(--text-main)', letterSpacing: '-0.025em', margin: 0, lineHeight: 1.15 }}>
-            Browse Specimen Index
+          <h1 className="page-title">
+            Browse campus items
           </h1>
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.98rem', marginTop: '6px', maxWidth: '640px', lineHeight: 1.5 }}>
-            Live catalog of lost possessions and recovered articles currently tracked across campus zones.
+          <p className="page-subtitle" style={{ marginBottom: 0 }}>
+            Search and filter lost belongings and found items across campus grounds.
           </p>
         </div>
 
@@ -94,59 +88,44 @@ export const BrowseItems: React.FC = () => {
           <button
             type="button"
             onClick={resetAllFilters}
-            className="btn btn-secondary"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              fontSize: '0.82rem',
-              fontWeight: 650,
-              padding: '8px 16px',
-              marginTop: '4px'
-            }}
+            className="btn btn-secondary btn-sm"
           >
-            <RotateCcw size={14} /> Clear Active Filters
+            <RotateCcw size={14} /> Clear filters
           </button>
         )}
       </div>
 
       {error && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 16px', backgroundColor: '#FEE2E2', border: '1px solid #FCA5A5', color: '#991B1B', borderRadius: 'var(--radius-sm)', fontSize: '0.9rem', fontWeight: 500, marginBottom: '20px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 16px', backgroundColor: 'var(--danger-light)', border: '1px solid var(--danger-border)', color: 'var(--danger)', borderRadius: 'var(--radius-sm)', fontSize: '0.88rem', marginBottom: '20px' }}>
           <AlertCircle size={18} />
           <span>{error}</span>
         </div>
       )}
 
-      {/* Tactile Search & Filter Console */}
+      {/* Filter and Search Bar Container */}
       <div style={{
-        backgroundColor: '#FFFFFF',
+        backgroundColor: 'var(--bg-surface)',
         borderRadius: 'var(--radius)',
         border: '1px solid var(--border)',
-        boxShadow: 'var(--shadow-sm)',
-        padding: '20px',
+        padding: '16px',
         marginBottom: '28px',
         display: 'flex',
         flexDirection: 'column',
-        gap: '18px'
+        gap: '14px'
       }}>
-        {/* Top Search Input & Sliding Type Segmented Control */}
-        <div className="browse-controls-row" style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ position: 'relative', flex: '1 1 340px' }} className="browse-search-wrapper">
-            <Search size={17} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
+          {/* Search Box */}
+          <div style={{ position: 'relative', flex: '1 1 300px' }}>
+            <Search size={16} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-tertiary)' }} />
             <input 
               type="text" 
-              placeholder="Search by keywords, location, zone, or details..." 
+              placeholder="Search by keywords, location, or details..." 
               className="form-control" 
               style={{ 
-                paddingLeft: '44px', 
-                paddingRight: searchTerm ? '42px' : '16px',
-                height: '46px',
-                borderRadius: '8px', 
-                backgroundColor: 'var(--bg-canvas)', 
-                border: '1px solid var(--border)', 
-                fontSize: '0.92rem',
-                fontFamily: 'var(--font-sans)',
-                boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.03)'
+                paddingLeft: '38px', 
+                paddingRight: searchTerm ? '38px' : '14px',
+                height: '42px',
+                fontSize: '0.88rem'
               }}
               value={searchTerm}
               onChange={e => handleSearchChange(e.target.value)}
@@ -157,188 +136,131 @@ export const BrowseItems: React.FC = () => {
                 onClick={handleClearSearch} 
                 style={{ 
                   position: 'absolute', 
-                  right: '12px', 
+                  right: '10px', 
                   top: '50%', 
                   transform: 'translateY(-50%)', 
                   color: 'var(--text-muted)', 
                   cursor: 'pointer', 
-                  background: 'rgba(0, 0, 0, 0.06)', 
+                  background: 'var(--bg-secondary)', 
                   border: 'none',
                   borderRadius: '50%',
-                  width: '24px',
-                  height: '24px',
+                  width: '22px',
+                  height: '22px',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center'
                 }}
                 aria-label="Clear search input"
               >
-                <X size={14} />
+                <X size={12} />
               </button>
             )}
           </div>
-          
-          {/* Framer Motion Sliding Status Type Control */}
-          <div className="browse-status-tabs" style={{
-            display: 'inline-flex',
-            position: 'relative',
-            padding: '4px',
-            backgroundColor: 'var(--bg-canvas)',
-            borderRadius: '10px',
-            border: '1px solid var(--border)',
-            gap: '2px',
-            flexWrap: 'wrap'
-          }}>
-            {[
-              { id: 'all', label: `All Docket (${reports.length})`, shortLabel: `All (${reports.length})`, color: 'var(--text-main)' },
-              { id: 'lost', label: `Active Search (${lostCount})`, shortLabel: `Lost (${lostCount})`, color: '#B45309' },
-              { id: 'found', label: `In Custody (${foundCount})`, shortLabel: `Found (${foundCount})`, color: '#047857' }
-            ].map(tab => {
-              const isSelected = statusFilter === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setStatusFilter(tab.id as 'all' | 'lost' | 'found')}
-                  style={{
-                    position: 'relative',
-                    padding: '8px 16px',
-                    borderRadius: '7px',
-                    fontSize: '0.82rem',
-                    fontWeight: isSelected ? 700 : 500,
-                    cursor: 'pointer',
-                    color: isSelected ? tab.color : 'var(--text-secondary)',
-                    backgroundColor: 'transparent',
-                    border: 'none',
-                    zIndex: 1,
-                    transition: 'color 0.15s ease'
-                  }}
-                  className="browse-tab-btn"
-                >
-                  {isSelected && (
-                    <motion.div
-                      layoutId="browseStatusPill"
-                      style={{
-                        position: 'absolute',
-                        inset: 0,
-                        backgroundColor: '#FFFFFF',
-                        borderRadius: '7px',
-                        boxShadow: 'var(--shadow-sm), inset 0 1px 0 rgba(255,255,255,1)',
-                        zIndex: -1
-                      }}
-                      transition={{ type: 'spring', stiffness: 450, damping: 32 }}
-                    />
-                  )}
-                  <span className="desktop-only-inline">{tab.label}</span>
-                  <span className="mobile-only-inline">{tab.shortLabel}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
 
-        {/* Category Taxonomy Chips */}
-        <div className="browse-category-scroller hide-scrollbar" style={{ display: 'flex', alignItems: 'center', gap: '8px', overflowX: 'auto', paddingBottom: '2px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-muted)', fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', marginRight: '4px', flexShrink: 0, fontFamily: 'var(--font-mono)' }}>
-            <Filter size={13} color="var(--text-muted)" />
-            <span>TAXONOMY:</span>
-          </div>
-          {categories.map(cat => {
-            const catArt = cat === 'All' ? { emoji: '🔍' } : getCategoryIllustration(cat);
-            const isSelected = categoryFilter === cat;
-
-            return (
-              <button 
-                key={cat}
-                type="button"
-                onClick={() => setCategoryFilter(cat)}
-                style={{ 
-                  padding: '6px 14px', 
-                  borderRadius: '6px',
-                  fontSize: '0.8rem',
-                  fontWeight: isSelected ? 650 : 500,
-                  whiteSpace: 'nowrap',
-                  flexShrink: 0,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  backgroundColor: isSelected ? 'var(--text-main)' : 'var(--bg-canvas)',
-                  color: isSelected ? '#FFFFFF' : 'var(--text-secondary)',
-                  border: `1px solid ${isSelected ? 'var(--text-main)' : 'var(--border)'}`,
-                  boxShadow: isSelected ? 'var(--shadow-sm)' : 'none',
-                  transition: 'all 0.15s ease',
-                  cursor: 'pointer'
-                }}
-              >
-                <span>{catArt.emoji}</span>
-                <span>{cat}</span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Results Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', paddingBottom: '12px', borderBottom: '1px solid var(--border)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <h2 style={{ fontSize: '1.15rem', color: 'var(--text-main)', fontWeight: 700, margin: 0 }}>
-            {hasActiveFilters ? `Filtered Ledger (${filteredReports.length})` : `All Indexed Items (${reports.length})`}
-          </h2>
-          <span className="mono-token mono-token-subtle" style={{ fontSize: '0.72rem' }}>
-            {filteredReports.length} RECORD{filteredReports.length === 1 ? '' : 'S'}
-          </span>
-        </div>
-        <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-          SORT: CHRONOLOGICAL DESCENDING
-        </span>
-      </div>
-
-      {/* Cards Grid */}
-      <div className="grid grid-cols-4 gap-6">
-        <AnimatePresence mode="popLayout">
-          {filteredReports.map((report, idx) => (
-            <motion.div
-              key={report.id}
-              initial={{ opacity: 0, y: 14 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              transition={{ duration: 0.22, delay: Math.min(idx * 0.04, 0.3) }}
+          {/* Type Segmented Control: All · Lost · Found */}
+          <div className="tabs-container" role="tablist" aria-label="Filter by report status">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={statusFilter === 'all'}
+              className={`tab-btn ${statusFilter === 'all' ? 'active' : ''}`}
+              onClick={() => setStatusFilter('all')}
             >
-              <ItemCard 
-                item={report} 
-                onClick={() => navigate(`/items/${report.id}`)}
-              />
-            </motion.div>
+              All items ({reports.length})
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={statusFilter === 'lost'}
+              className={`tab-btn ${statusFilter === 'lost' ? 'active' : ''}`}
+              onClick={() => setStatusFilter('lost')}
+            >
+              Lost ({lostCount})
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={statusFilter === 'found'}
+              className={`tab-btn ${statusFilter === 'found' ? 'active' : ''}`}
+              onClick={() => setStatusFilter('found')}
+            >
+              Found ({foundCount})
+            </button>
+          </div>
+        </div>
+
+        {/* Category Pill Filters */}
+        <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '2px', alignItems: 'center' }}>
+          <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginRight: '4px', fontWeight: 500 }}>Category:</span>
+          {categories.map((cat) => (
+            <button
+              key={cat}
+              type="button"
+              onClick={() => setCategoryFilter(cat)}
+              style={{
+                padding: '4px 10px',
+                borderRadius: 'var(--radius-full)',
+                fontSize: '0.78rem',
+                fontWeight: 500,
+                border: '1px solid',
+                borderColor: categoryFilter === cat ? 'var(--primary)' : 'var(--border)',
+                backgroundColor: categoryFilter === cat ? 'var(--primary-light)' : 'transparent',
+                color: categoryFilter === cat ? 'var(--primary)' : 'var(--text-secondary)',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                transition: 'var(--transition-fast)'
+              }}
+            >
+              {cat}
+            </button>
           ))}
-        </AnimatePresence>
+        </div>
       </div>
-      
+
+      {/* Content Area */}
       {loading ? (
-        <div style={{ textAlign: 'center', padding: '80px 24px', backgroundColor: '#FFFFFF', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
-          <Loader2 size={36} style={{ animation: 'spin 1s linear infinite', margin: '0 auto 16px', color: 'var(--text-main)' }} />
-          <p style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: '0.85rem' }}>SYNCING CAMPUS ARCHIVE REGISTRY...</p>
+        <div style={{ textAlign: 'center', padding: '80px 20px' }}>
+          <Loader2 size={32} className="spin-loader" style={{ margin: '0 auto 12px', color: 'var(--primary)' }} />
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Loading items...</p>
         </div>
       ) : filteredReports.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '72px 24px', backgroundColor: '#FFFFFF', borderRadius: 'var(--radius)', border: '1px dashed var(--border)' }}>
-          <div style={{ width: '64px', height: '64px', borderRadius: '50%', backgroundColor: 'var(--bg-canvas)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 18px', color: 'var(--text-muted)' }}>
-            <Compass size={30} />
-          </div>
-          <div className="mono-token mono-token-subtle" style={{ marginBottom: '8px' }}>ZERO MATCHES</div>
-          <h3 style={{ fontSize: '1.25rem', color: 'var(--text-main)', marginBottom: '8px', fontWeight: 700 }}>No specimens match active criteria</h3>
-          <p style={{ color: 'var(--text-muted)', maxWidth: '440px', margin: '0 auto 20px', fontSize: '0.92rem', lineHeight: 1.55 }}>
-            No {statusFilter !== 'all' ? statusFilter : ''} reports were found matching {searchTerm ? `"${searchTerm}"` : 'the selected filters'}. Check your query or reset the catalog view.
+        <div style={{
+          padding: '64px 20px',
+          textAlign: 'center',
+          backgroundColor: 'var(--bg-surface)',
+          border: '1px solid var(--border)',
+          borderRadius: 'var(--radius)'
+        }}>
+          <PackageSearch size={36} style={{ color: 'var(--text-tertiary)', margin: '0 auto 12px' }} />
+          <h3 style={{ fontSize: '1.05rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '4px' }}>
+            {hasActiveFilters ? 'Nothing matches your search.' : 'No items reported yet.'}
+          </h3>
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', maxWidth: '380px', margin: '0 auto 18px' }}>
+            {hasActiveFilters
+              ? 'Try searching with different keywords or clearing your active filters.'
+              : 'When items are reported on campus, they will appear here.'}
           </p>
-          <button 
-            type="button" 
-            className="btn btn-secondary" 
-            onClick={resetAllFilters}
-            style={{ padding: '8px 20px', fontSize: '0.88rem' }}
-          >
-            <RotateCcw size={14} /> Clear All Filters
-          </button>
+          {hasActiveFilters && (
+            <button
+              type="button"
+              onClick={resetAllFilters}
+              className="btn btn-secondary btn-sm"
+            >
+              <RotateCcw size={14} /> Clear all filters
+            </button>
+          )}
         </div>
-      ) : null}
+      ) : (
+        <div className="grid grid-cols-3" style={{ gap: '20px' }}>
+          {filteredReports.map(report => (
+            <ItemCard
+              key={report.id}
+              item={report}
+              onClick={() => navigate(`/items/${report.id}`)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 };
-

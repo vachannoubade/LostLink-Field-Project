@@ -3,8 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../store/AuthContext';
 import { useData } from '../store/DataContext';
 import { 
-  Mail, Shield, User as UserIcon, LogOut, CheckCircle2, 
-  AlertCircle, Database, FolderOpen, Sparkles, ChevronRight 
+  Mail, User as UserIcon, LogOut, CheckCircle2, 
+  AlertCircle, FolderOpen, Sparkles, ChevronRight, ShieldCheck 
 } from 'lucide-react';
 
 export const Profile: React.FC = () => {
@@ -18,305 +18,204 @@ export const Profile: React.FC = () => {
     try {
       setLoggingOut(true);
       setError(null);
+      const wasAdmin = Boolean(profile?.isAdmin);
       await signOut();
-      navigate('/login');
-    } catch (err: any) {
-      setError(err?.message || 'Failed to sign out. Please try again.');
+      navigate(wasAdmin ? '/admin/login' : '/login');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to sign out. Please try again.');
     } finally {
       setLoggingOut(false);
     }
   };
 
   const displayName = profile?.name || user?.name || 'Campus Student';
-  const displayEmail = profile?.email || user?.email || 'student@university.edu';
-  const displayId = profile?.id || user?.id || '—';
+  const displayEmail = profile?.email || user?.email || 'student@sguk.ac.in';
   const avatarLetter = displayName.charAt(0).toUpperCase() || 'U';
 
   const userReports = reports.filter(r => r.userId === (user?.id || ''));
   const pendingMatches = matches.filter(m => m.status === 'pending');
 
   return (
-    <div style={{ paddingBottom: '48px', maxWidth: '820px', margin: '0 auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px', marginBottom: '28px' }}>
+    <div style={{ maxWidth: '780px', margin: '0 auto', paddingBottom: '48px' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px', marginBottom: '24px' }}>
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-            <span className="mono-token mono-token-amber">
-              {profile?.isAdmin ? 'ADMINISTRATOR REGISTRY' : 'STUDENT REGISTRY'}
-            </span>
-            <span className="mono-token mono-token-subtle">IDENTITY CREDENTIAL</span>
-          </div>
-          <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '2.5rem', fontWeight: 600, color: 'var(--text-main)', letterSpacing: '-0.025em', margin: 0, lineHeight: 1.15 }}>
-            Student Dossier & Credentials
+          <h1 className="page-title">
+            Account profile
           </h1>
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.98rem', marginTop: '6px', maxWidth: '620px', lineHeight: 1.5 }}>
-            Verified campus identity, session parameters, and cryptographic access credentials.
+          <p className="page-subtitle" style={{ marginBottom: 0 }}>
+            Your university identity and account settings.
           </p>
         </div>
 
-        <div className="profile-header-actions" style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '4px' }}>
-          {isAuthenticated && (
-            <button
-              onClick={handleSignOut}
-              disabled={loggingOut}
-              className="btn btn-secondary"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                borderColor: '#FCA5A5',
-                color: '#991B1B',
-                fontSize: '0.84rem',
-                padding: '8px 16px'
-              }}
-            >
-              <LogOut size={15} />
-              <span>{loggingOut ? 'Signing out...' : 'Sign Out'}</span>
-            </button>
-          )}
-        </div>
+        {isAuthenticated && (
+          <button
+            onClick={handleSignOut}
+            disabled={loggingOut}
+            className="btn btn-secondary btn-sm"
+            style={{ color: 'var(--danger)' }}
+          >
+            <LogOut size={14} />
+            <span>{loggingOut ? 'Signing out...' : 'Sign Out'}</span>
+          </button>
+        )}
       </div>
 
       {error && (
         <div style={{
           display: 'flex',
           alignItems: 'center',
-          gap: '12px',
-          padding: '14px 18px',
-          backgroundColor: '#FEE2E2',
-          border: '1px solid #FCA5A5',
-          borderRadius: '8px',
-          color: '#991B1B',
-          marginBottom: '24px',
-          fontSize: '0.9rem'
+          gap: '8px',
+          padding: '12px 16px',
+          backgroundColor: 'var(--danger-light)',
+          border: '1px solid var(--danger-border)',
+          borderRadius: 'var(--radius-sm)',
+          color: 'var(--danger)',
+          marginBottom: '20px',
+          fontSize: '0.88rem'
         }}>
-          <AlertCircle size={18} style={{ flexShrink: 0 }} />
+          <AlertCircle size={16} />
           <span>{error}</span>
         </div>
       )}
 
-      {/* Account Type Banner */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '14px',
-        padding: '16px 20px',
-        backgroundColor: '#ECFDF5',
-        border: '1px solid #A7F3D0',
-        borderRadius: '8px',
-        color: '#065F46',
-        marginBottom: '24px',
-        fontSize: '0.88rem'
-      }}>
-        <CheckCircle2 size={18} style={{ color: '#047857', flexShrink: 0 }} />
-        <div>
-          <strong style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-            AUTHENTICATED LIVE SESSION:
-          </strong> Logged in via Supabase Auth with Row-Level Security active.
+      {/* Main Profile Identity Card */}
+      <div className="card" style={{ padding: '28px', backgroundColor: 'var(--bg-surface)', marginBottom: '20px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap' }}>
+          <div style={{
+            width: '64px',
+            height: '64px',
+            borderRadius: '50%',
+            backgroundColor: 'var(--primary)',
+            color: '#FFFFFF',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '1.6rem',
+            fontWeight: 600
+          }}>
+            {avatarLetter}
+          </div>
+
+          <div style={{ flex: 1, minWidth: '200px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '4px' }}>
+              <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-main)', margin: 0 }}>
+                {displayName}
+              </h2>
+              <span className={profile?.isAdmin ? 'badge badge-found' : 'badge badge-resolved'}>
+                <CheckCircle2 size={12} />
+                {profile?.isAdmin ? 'Administrator' : 'Verified Student'}
+              </span>
+            </div>
+
+            <div style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Mail size={14} />
+              <span>{displayEmail}</span>
+            </div>
+          </div>
         </div>
       </div>
 
       {/* Quick Navigation Cards */}
-      <div className="profile-nav-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px', marginBottom: '24px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px', marginBottom: '24px' }}>
         <div 
           onClick={() => navigate('/my-reports')}
           className="card"
           style={{
-            padding: '18px 20px',
+            padding: '16px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
             cursor: 'pointer',
-            backgroundColor: 'var(--bg-card)',
-            backdropFilter: 'var(--blur-glass)',
-            WebkitBackdropFilter: 'var(--blur-glass)',
-            boxShadow: 'var(--glass-specular), var(--shadow-sm)'
+            backgroundColor: 'var(--bg-surface)'
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{ width: '40px', height: '40px', borderRadius: '12px', backgroundColor: 'var(--primary-light)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'var(--glass-specular-soft)' }}>
-              <FolderOpen size={20} />
+            <div style={{ width: '36px', height: '36px', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--primary-light)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <FolderOpen size={18} />
             </div>
             <div>
-              <div style={{ fontWeight: 650, fontSize: '0.94rem', color: 'var(--text-main)', letterSpacing: '-0.01em' }}>My Reported Items</div>
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{userReports.length} {userReports.length === 1 ? 'item' : 'items'} reported</div>
+              <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-main)' }}>My Reported Items</div>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{userReports.length} {userReports.length === 1 ? 'item' : 'items'}</div>
             </div>
           </div>
-          <ChevronRight size={17} color="var(--text-muted)" />
+          <ChevronRight size={16} color="var(--text-muted)" />
         </div>
 
         <div 
           onClick={() => navigate('/ai-matches')}
           className="card"
           style={{
-            padding: '18px 20px',
+            padding: '16px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
             cursor: 'pointer',
-            backgroundColor: 'var(--bg-card)',
-            backdropFilter: 'var(--blur-glass)',
-            WebkitBackdropFilter: 'var(--blur-glass)',
-            boxShadow: 'var(--glass-specular), var(--shadow-sm)'
+            backgroundColor: 'var(--bg-surface)'
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{ width: '40px', height: '40px', borderRadius: '12px', backgroundColor: 'var(--primary-light)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'var(--glass-specular-soft)' }}>
-              <Sparkles size={20} />
+            <div style={{ width: '36px', height: '36px', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--warning-light)', color: 'var(--warning)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Sparkles size={18} />
             </div>
             <div>
-              <div style={{ fontWeight: 650, fontSize: '0.94rem', color: 'var(--text-main)', letterSpacing: '-0.01em' }}>AI Match Feed</div>
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{pendingMatches.length} pending {pendingMatches.length === 1 ? 'match' : 'matches'}</div>
+              <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-main)' }}>Potential Matches</div>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{pendingMatches.length} pending</div>
             </div>
           </div>
-          <ChevronRight size={17} color="var(--text-muted)" />
-        </div>
-      </div>
-
-      {/* Main Profile Card */}
-      <div className="card" style={{
-        backgroundColor: 'var(--bg-card)',
-        backdropFilter: 'var(--blur-glass)',
-        WebkitBackdropFilter: 'var(--blur-glass)',
-        boxShadow: 'var(--glass-specular), var(--shadow-sm)'
-      }}>
-        <div style={{
-          padding: '36px 32px',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          borderBottom: '1px solid var(--border)',
-          backgroundColor: 'rgba(255, 255, 255, 0.5)'
-        }}>
-          <div style={{
-            width: '88px',
-            height: '88px',
-            borderRadius: '50%',
-            background: 'linear-gradient(135deg, var(--primary) 0%, #3B82F6 100%)',
-            color: 'white',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '2.4rem',
-            fontWeight: 700,
-            marginBottom: '16px',
-            boxShadow: '0 8px 24px rgba(24, 90, 219, 0.25), inset 0 1px 1px 0 rgba(255, 255, 255, 0.5)'
-          }}>
-            {avatarLetter}
-          </div>
-          <h2 style={{ fontSize: '1.45rem', marginBottom: '6px', color: 'var(--text-main)', fontWeight: 700, letterSpacing: '-0.02em' }}>
-            {displayName}
-          </h2>
-          <div style={{ color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.92rem', marginBottom: '14px' }}>
-            <Mail size={15} />
-            <span>{displayEmail}</span>
-          </div>
-          <span style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '6px',
-            padding: '5px 14px',
-            borderRadius: '999px',
-            fontSize: '0.78rem',
-            fontWeight: 650,
-            backgroundColor: 'rgba(240, 253, 244, 0.9)',
-            color: '#15803D',
-            border: '1px solid rgba(22, 163, 74, 0.25)',
-            backdropFilter: 'blur(12px)',
-            boxShadow: 'var(--glass-specular-soft)'
-          }}>
-            <CheckCircle2 size={14} />
-            {profile?.isAdmin ? 'Campus Administrator' : 'Verified Campus Student'}
-          </span>
+          <ChevronRight size={16} color="var(--text-muted)" />
         </div>
 
-        <div style={{ padding: '32px' }}>
-          <h3 style={{ fontSize: '1.08rem', marginBottom: '20px', fontWeight: 650, display: 'flex', alignItems: 'center', gap: '8px', letterSpacing: '-0.015em' }}>
-            <UserIcon size={18} style={{ color: 'var(--primary)' }} />
-            Account Information
-          </h3>
-          
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
-            <div>
-              <label className="form-label" style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>Full Name</label>
-              <input
-                type="text"
-                className="form-control"
-                value={displayName}
-                readOnly
-                disabled
-                style={{ backgroundColor: 'rgba(255, 255, 255, 0.7)', borderColor: 'var(--border)' }}
-              />
-            </div>
-
-            <div>
-              <label className="form-label" style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>University Email</label>
-              <input
-                type="text"
-                className="form-control"
-                value={displayEmail}
-                readOnly
-                disabled
-                style={{ backgroundColor: 'rgba(255, 255, 255, 0.7)', borderColor: 'var(--border)' }}
-              />
-            </div>
-
-            <div>
-              <label className="form-label" style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>User Identifier (UUID / ID)</label>
-              <input
-                type="text"
-                className="form-control"
-                value={displayId}
-                readOnly
-                disabled
-                style={{ backgroundColor: 'rgba(255, 255, 255, 0.7)', borderColor: 'var(--border)', fontFamily: 'monospace', fontSize: '0.82rem' }}
-              />
-            </div>
-
-            <div>
-              <label className="form-label" style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Security & Session Provider</label>
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '12px 14px',
-                borderRadius: '8px',
-                backgroundColor: '#F8F9FC',
-                border: '1px solid var(--border)',
-                fontSize: '0.9rem',
-                color: 'var(--text-main)'
-              }}>
-                <Shield size={16} style={{ color: 'var(--primary)' }} />
-                <span>Supabase Auth (JWT with RLS Enforcement)</span>
+        {profile?.isAdmin && (
+          <div 
+            onClick={() => navigate('/admin')}
+            className="card"
+            style={{
+              padding: '16px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              cursor: 'pointer',
+              backgroundColor: 'var(--bg-surface)'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{ width: '36px', height: '36px', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--success-light)', color: 'var(--success)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <ShieldCheck size={18} />
+              </div>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-main)' }}>Admin Dashboard</div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Campus operations</div>
               </div>
             </div>
+            <ChevronRight size={16} color="var(--text-muted)" />
           </div>
+        )}
+      </div>
 
-          <div style={{
-            marginTop: '32px',
-            paddingTop: '24px',
-            borderTop: '1px solid var(--border)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
-            gap: '12px'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-              <Database size={16} />
-              <span>Backend status: Supabase Connected</span>
+      {/* Account Details Details List */}
+      <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-surface)' }}>
+        <h3 style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <UserIcon size={16} />
+          <span>Account information</span>
+        </h3>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div>
+            <label className="form-label" style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '3px' }}>Full name</label>
+            <div style={{ fontSize: '0.9rem', fontWeight: 500, color: 'var(--text-main)' }}>{displayName}</div>
+          </div>
+          <div style={{ height: '1px', backgroundColor: 'var(--border)' }} />
+          <div>
+            <label className="form-label" style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '3px' }}>Email address</label>
+            <div style={{ fontSize: '0.9rem', fontWeight: 500, color: 'var(--text-main)' }}>{displayEmail}</div>
+          </div>
+          <div style={{ height: '1px', backgroundColor: 'var(--border)' }} />
+          <div>
+            <label className="form-label" style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '3px' }}>Account role</label>
+            <div style={{ fontSize: '0.9rem', fontWeight: 500, color: 'var(--text-main)' }}>
+              {profile?.isAdmin ? 'Campus Administrator' : 'Student Member'}
             </div>
-
-            {isAuthenticated && (
-              <button
-                type="button"
-                onClick={handleSignOut}
-                disabled={loggingOut}
-                className="btn btn-secondary"
-                style={{ borderColor: 'var(--border)', color: 'var(--text-main)', fontSize: '0.88rem' }}
-              >
-                {loggingOut ? 'Signing out...' : 'Sign Out of Account'}
-              </button>
-            )}
           </div>
         </div>
       </div>

@@ -177,8 +177,8 @@ export const AdminLogin: React.FC = () => {
           }}>
             <ShieldCheck size={26} />
           </div>
-          <h1 style={{ fontSize: '1.4rem', fontWeight: 650, color: 'var(--text-main)', margin: '0 0 6px 0' }}>
-            Administrative Portal
+          <h1 style={{ fontSize: '1.35rem', fontWeight: 600, color: 'var(--text-main)', margin: '0 0 6px 0' }}>
+            Administrator sign in
           </h1>
           <p style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', margin: 0 }}>
             Restricted access for Sanjay Ghodawat University operations
@@ -329,13 +329,13 @@ export const AdminLogin: React.FC = () => {
             >
               {loading ? (
                 <>
-                  <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
-                  Verifying Session...
+                  <Loader2 size={16} className="spin-loader" />
+                  <span>Signing in...</span>
                 </>
               ) : (
                 <>
                   <KeyRound size={16} />
-                  Sign In to Admin Portal
+                  <span>Sign in</span>
                 </>
               )}
             </button>

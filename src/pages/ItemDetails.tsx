@@ -326,29 +326,29 @@ export const ItemDetails: React.FC = () => {
             overflow: 'hidden'
           }}>
             <div style={{ padding: '12px 16px', borderRight: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }}>
-              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 650, textTransform: 'uppercase', marginBottom: '3px' }}>
-                LOCATION / ZONE
+              <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', fontWeight: 500, marginBottom: '3px' }}>
+                Location
               </div>
-              <div style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--text-main)' }}>
+              <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)' }}>
                 {item.campusZone ? `${item.campusZone} • ${item.location}` : item.location}
               </div>
             </div>
 
             <div style={{ padding: '12px 16px', borderRight: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }}>
-              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 650, textTransform: 'uppercase', marginBottom: '3px' }}>
-                DATE {item.type === 'lost' ? 'LOST' : 'FOUND'}
+              <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', fontWeight: 500, marginBottom: '3px' }}>
+                {item.type === 'lost' ? 'Date lost' : 'Date found'}
               </div>
-              <div style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--text-main)' }}>
+              <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)' }}>
                 {formattedDate}
               </div>
             </div>
 
             {item.brandModel && (
               <div style={{ padding: '12px 16px', borderRight: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }}>
-                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 650, textTransform: 'uppercase', marginBottom: '3px' }}>
-                  BRAND / MODEL
+                <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', fontWeight: 500, marginBottom: '3px' }}>
+                  Brand / Model
                 </div>
-                <div style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)' }}>
                   {item.brandModel}
                 </div>
               </div>
@@ -356,10 +356,10 @@ export const ItemDetails: React.FC = () => {
 
             {item.color && (
               <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
-                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 650, textTransform: 'uppercase', marginBottom: '3px' }}>
-                  COLOR
+                <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', fontWeight: 500, marginBottom: '3px' }}>
+                  Color
                 </div>
-                <div style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)' }}>
                   {item.color}
                 </div>
               </div>
@@ -369,10 +369,10 @@ export const ItemDetails: React.FC = () => {
           {/* Distinguishing Features if present */}
           {item.distinguishingFeatures && (
             <div style={{ marginBottom: '20px', padding: '12px 16px', backgroundColor: 'var(--bg-color)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
-              <div style={{ fontSize: '0.72rem', fontWeight: 650, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '4px' }}>
-                DISTINGUISHING MARKS
+              <div style={{ fontSize: '0.74rem', fontWeight: 500, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                Distinguishing marks
               </div>
-              <div style={{ fontSize: '0.88rem', color: 'var(--text-main)' }}>
+              <div style={{ fontSize: '0.9rem', color: 'var(--text-main)' }}>
                 {item.distinguishingFeatures}
               </div>
             </div>
@@ -380,8 +380,8 @@ export const ItemDetails: React.FC = () => {
 
           {/* Description */}
           <div style={{ marginBottom: '24px' }}>
-            <h3 style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '8px', color: 'var(--text-muted)' }}>
-              DESCRIPTION
+            <h3 style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>
+              Description
             </h3>
             <p style={{ fontSize: '0.94rem', color: 'var(--text-main)', lineHeight: 1.6, whiteSpace: 'pre-wrap', margin: 0 }}>
               {item.description}
