@@ -7,8 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "test": "node --test --experimental-strip-types tests/matching.test.ts tests/verification.test.ts tests/supabaseUrl.test.ts tests/collegeEmail.test.ts tests/adminAccess.test.ts",
-    "test:db": "node --test tests/db/stageReadyAccessHardening.test.mjs",
+    "test": "node --test --experimental-strip-types tests/matching.test.ts tests/verification.test.ts tests/supabaseUrl.test.ts tests/collegeEmail.test.ts tests/adminAccess.test.ts tests/claims.test.ts",
+    "test:db": "node --test tests/db/stageReadyAccessHardening.test.mjs tests/db/campusRecoveryArchitecture.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

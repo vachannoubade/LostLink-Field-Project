@@ -1,15 +1,20 @@
 # LostLink Stage-Ready Deployment & Verification
 
-This runbook covers `supabase/migrations/20261113120000_stage_ready_access_hardening.sql`. It is written for a staging project first, with a separate live-deployment gate.
+This runbook covers the two stage-ready security and campus recovery migrations:
+1. `supabase/migrations/20261113120000_stage_ready_access_hardening.sql`
+2. `supabase/migrations/20261113160000_campus_recovery_handover_architecture.sql`
 
-> **Do not apply this migration to the live project until the staging checks below pass and the change is explicitly approved.**
+It is written for a staging project first, with a separate live-deployment gate.
+
+> **Do not apply these migrations to the live project until the staging checks below pass and the change is explicitly approved.**
 
 ---
 
-## 1. What the migration changes
+## 1. What the migrations change
 
+### Migration 1: Stage-Ready Access Hardening (`20261113120000`)
 - Resolved reports are readable only by administrators.
-- Report images are private and follow these visibility rules:
+- Report images are private and follow owner/admin visibility rules:
   - Normal image on an active report, stored under the report owner's folder: any authenticated campus member.
   - Normal image path that does not match the attached report owner's folder: owner or administrator only.
   - Sensitive image (`{userId}/sensitive/...`): owner or administrator only while active.
@@ -18,14 +23,22 @@ This runbook covers `supabase/migrations/20261113120000_stage_ready_access_harde
 - Restrictive policies prevent stale permissive policies from re-opening resolved reports or sensitive images.
 - Unnecessary anonymous EXECUTE privileges on SECURITY DEFINER functions are revoked.
 - Administrators get read access to persisted match records.
-- The `report-images` bucket and its full write policy set are declared in this migration, so it does not depend on the historical storage migration file.
+- The `report-images` bucket and its full write policy set are declared idempotently.
 - New signups must use a `@sguk.ac.in` college email address matching numeric PRN format (e.g. `242631003@sguk.ac.in`) unless they are provisioned with trusted `app_metadata.role = "admin"`.
 
-No reports, profiles, matches, or images are deleted.
+### Migration 2: Campus Recovery & Helpdesk Handover Architecture (`20261113160000`)
+- **Campus Memberships (`campus_memberships`)**: Server-controlled membership states (`PENDING`, `ACTIVE`, `SUSPENDED`, `REVOKED`) for `student`, `staff`, `desk_operator`, and `admin`. Revocation takes immediate effect at database RLS without trusting stale client JWTs.
+- **Staff Allowlist (`staff_allowlist`)**: Pre-approved faculty and staff accounts managed by administrators. Allows approved non-PRN staff emails to register.
+- **Configurable Campus Desks (`campus_desks`)**: Official recovery locations. Default Central Campus Helpdesk is flagged `is_configured = false` to indicate institutional setup remains necessary.
+- **Structured Report Attributes**: Brand/model, color, distinguishing features, SGUK campus zone, and custody status (`with_finder`, `handed_to_desk`, `only_observed`).
+- **Private Identifying Details (`report_private_details`)**: Cleanly replaces the confusing PIN system for new reports. Stores private clues visible only to the reporter and authorized administrators/desk operators.
+- **Claims Lifecycle & Recovery State Machine (`claims`)**: Formal claim statuses (`REQUESTED`, `UNDER_REVIEW`, `APPROVED_FOR_HANDOVER`, `HANDED_OVER`, `RESOLVED`, `REJECTED`, `WITHDRAWN`, `DISPUTED`).
+- **Helpdesk Handover Records (`handover_records`)**: Audited physical handovers with verified claimant identity, operator signature, and condition notes.
+- **Abuse Protection & Rate Limiting (`rate_limit_events`)**: PostgreSQL-enforced quotas (3 reports/hour, 10 reports/day, 20 edits/day, 5 claims/day, 10 abuse reports/day).
+- **Administrative Audit Logs (`audit_logs`) & Abuse Reports (`moderation_reports`)**: Complete traceability for all sensitive actions and suspicious content reporting.
+- **Initial Administrator Provisioning Protection**: Protects `vachannoubade@gmail.com` from unauthorized registration via public signup endpoints.
 
-### Historical storage migration note
-
-The historical storage migration `supabase/migrations/20261014111500_report_images_storage.sql` is preserved. This new hardening migration (`20261113120000_stage_ready_access_hardening.sql`) explicitly drops the historical permissive policies and replaces them with hardened owner-scoped and restrictive visibility policies. It is idempotent and self-contained for the bucket and storage policies.
+No existing reports, profiles, matches, or images are deleted.
 
 ### Administrator identity
 
@@ -35,7 +48,35 @@ The only trusted administrator source is:
 auth.users.raw_app_meta_data -> 'role' = 'admin'
 ```
 
-Do **not** use `user_metadata`, local storage, URL parameters, or an editable `profiles` column to grant administrator access. Supabase users can update their own `user_metadata`, but they cannot update `raw_app_meta_data` through the public client.
+Do **not** use `user_metadata`, local storage, URL parameters, or an editable `profiles` column to grant administrator access. Supabase users can update their own `user_metadata`, but they cannot update `raw_app_meta_data` through the public client. Dedicated administrative login is available at `/admin/login`.
+
+---
+
+## 2. Administrator Provisioning Procedure
+
+The initial authorized administrator email is:
+`vachannoubade@gmail.com`
+
+This account is an authorized exception to the `@sguk.ac.in` PRN email requirement, but **cannot** be registered through public signup.
+
+### Initial Setup Steps:
+1. In the Supabase Dashboard, go to **Authentication > Users**.
+2. If `vachannoubade@gmail.com` already exists, run the following SQL command in the SQL Editor:
+   ```sql
+   UPDATE auth.users
+   SET raw_app_meta_data = coalesce(raw_app_meta_data, '{}'::jsonb) || '{"role": "admin"}'::jsonb
+   WHERE email = 'vachannoubade@gmail.com';
+
+   -- Upsert active administrator membership
+   INSERT INTO public.campus_memberships (user_id, membership_type, status)
+   SELECT id, 'admin', 'ACTIVE'
+   FROM auth.users
+   WHERE email = 'vachannoubade@gmail.com'
+   ON CONFLICT (user_id) DO UPDATE SET membership_type = 'admin', status = 'ACTIVE';
+   ```
+3. If the user does not exist yet, invite the user via **Authentication > Users > Invite user** with email `vachannoubade@gmail.com`, then run the SQL above.
+4. The administrator sets their own password by following the invitation link or by using the **"Request password setup / reset"** button at `/admin/login`.
+5. Multi-Factor Authentication (MFA / TOTP) should be enabled by the administrator within Supabase Auth settings upon initial sign-in.
 
 ---
 
@@ -337,21 +378,25 @@ The portal labels this as `LIVE + PERSISTED`. Confirm that the Matched tab and c
 
 Preferred rollback: restore the pre-migration backup or PITR snapshot.
 
-Emergency SQL rollback:
+Emergency SQL rollback should be performed in reverse chronological order:
 
+### Step 1: Rollback Campus Recovery Architecture (`20261113160000`)
+```bash
+psql "$STAGING_DATABASE_URL" \
+  --file="supabase/rollback/20261113160000_campus_recovery_handover_architecture_rollback.sql"
+```
+This rollback script cleanly drops:
+- `handover_records`, `claims`, `report_private_details`, `moderation_reports`, `audit_logs`, `rate_limit_events`, `campus_desks`, `staff_allowlist`, and `campus_memberships`.
+- Stored procedures (`create_report_secure`, `submit_claim_secure`, `complete_handover_resolution`, `check_and_record_rate_limit`, `is_caller_active_member`, `is_current_user_desk_operator`).
+- Restores the original `enforce_college_email_domain()` function.
+
+### Step 2: Rollback Access Hardening (`20261113120000`) (if required)
 ```bash
 psql "$STAGING_DATABASE_URL" \
   --file="supabase/rollback/20261113120000_stage_ready_access_hardening_rollback.sql"
 ```
 
-The rollback script:
-
-- removes the new restrictive and administrator policies,
-- restores the historical blanket report/storage read policies,
-- removes the helper functions and image index,
-- removes the signup email trigger.
-
-It does not delete reports, images, profiles, or matches, and it does not remove the bucket. It intentionally restores the less-secure pre-hardening behavior. After a rollback, fix the forward migration and re-apply it, or restore the backup. Do not leave staging in the rolled-back state.
+The rollback scripts do not delete historical reports, images, profiles, or matches, and do not remove the storage bucket. After a rollback, fix the migration and re-apply, or restore from backup.
 
 ---
 
@@ -362,9 +407,10 @@ Apply to live only when all of the following are true:
 - Staging schema, RLS impersonation, UI, signup, and storage checks pass.
 - Two-student + administrator checks pass with separate sessions.
 - The backup is verified and its identifier recorded.
-- The exact migration checksum matches the tested file.
+- The exact migration checksums match the tested files.
 - Rollback owner and deployment window are agreed.
-- Administrator provisioning has been tested with sign-out/sign-in and JWT refresh.
+- Administrator provisioning (`vachannoubade@gmail.com`) has been tested with sign-out/sign-in and JWT refresh.
+- Campus desk configuration is verified (`is_configured = false` initial pending banner is understood by campus operators).
 - No service-role or secret key is present in client-visible configuration.
 
 After live deployment:
@@ -390,20 +436,26 @@ npm run lint
 npm run build
 ```
 
-`npm run test:db` uses `@electric-sql/pglite` with a minimal Supabase-compatible fixture. It applies the exact hardening migration twice, then verifies:
-
-- resolved report visibility for students vs administrators,
-- sensitive, resolved, orphan, and active image visibility,
-- owner-only storage writes and path-traversal rejection,
-- restrictive-policy defense against stale permissive policies,
-- match visibility,
-- trusted `app_metadata`-only administrator claims,
-- signup-domain enforcement and preservation of legacy accounts.
+- `npm test`: Runs **45 unit tests** across matching heuristics, verification logic, Supabase URL protection, college PRN email regex, admin access guards, and claim input validation.
+- `npm run test:db`: Runs **16 database tests** against `@electric-sql/pglite` validating both `20261113120000_stage_ready_access_hardening.sql` and `20261113160000_campus_recovery_handover_architecture.sql`:
+  - Resolved report invisibility to students and visibility to admins.
+  - Sensitive and archived image access control.
+  - Storage path-traversal rejection.
+  - Match record RLS.
+  - Trusted `app_metadata` admin claim restriction.
+  - College PRN email enforcement and legacy account preservation.
+  - Staff allowlist pre-approval.
+  - Server-side rate limiting and input length constraints.
+  - Complete claims lifecycle, competing claim dispute handling, and helpdesk handover.
+  - Suspended account blocking.
+  - Clean transaction rollback for both migrations.
+- `npm run lint`: 0 errors.
+- `npm run build`: Production TypeScript compilation and Vite bundling with zero leaks.
 
 Limitations of the local harness:
 
 - PGlite does not provide the Supabase storage API or `pgcrypto`; the fixture does not replay the entire historical migration chain.
-- It is not a substitute for the staging checks above.
+- It is not a substitute for staging checks on live Supabase services.
 - It cannot validate the live Auth service, JWT issuance, or Storage signed-URL service.
 
 The workspace currently has no local/staging database credentials, so live database verification has not been performed here.

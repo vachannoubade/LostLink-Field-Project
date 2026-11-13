@@ -1,6 +1,16 @@
 export type ItemStatus = 'lost' | 'found' | 'resolved';
 export type Category = 'Electronics' | 'ID Cards' | 'Bags' | 'Books' | 'Accessories' | 'Keys' | 'Other';
 export type ReportType = 'lost' | 'found';
+export type CustodyStatus = 'with_finder' | 'handed_to_desk' | 'only_observed' | 'desk_custody_confirmed';
+
+export interface AuditLog {
+  id: string;
+  action: string;
+  actor_id?: string | null;
+  target_id?: string | null;
+  details?: Record<string, unknown> | null;
+  created_at: string;
+}
 
 export interface ItemComment {
   id: string;
@@ -27,8 +37,16 @@ export interface Report {
   userId: string;
   createdAt: string;
 
-  // Optional human-centric community & verification metadata
+  // Final structured attributes
+  brandModel?: string;
+  color?: string;
+  distinguishingFeatures?: string;
   campusZone?: string;
+  custodyStatus?: 'with_finder' | 'handed_to_desk' | 'only_observed' | 'desk_custody_confirmed';
+  deskLocation?: string;
+  privateEvidence?: string;
+
+  // Optional human-centric community & verification metadata
   reporterName?: string;
   reporterRole?: string;
   reporterAvatar?: string;
@@ -83,6 +101,108 @@ export interface Notification {
   createdAt: string;
   link?: string;
   type?: 'match' | 'sighting' | 'reunion' | 'info' | 'claim';
+}
+
+export type CampusMembershipType = 'student' | 'staff' | 'desk_operator' | 'admin';
+export type CampusMembershipStatus = 'PENDING' | 'ACTIVE' | 'SUSPENDED' | 'REVOKED';
+
+export interface CampusMembership {
+  id: string;
+  userId?: string;
+  user_id?: string;
+  membershipType?: CampusMembershipType;
+  membership_type?: CampusMembershipType;
+  status: CampusMembershipStatus;
+  approvedBy?: string;
+  approved_by?: string;
+  approvedAt?: string;
+  approved_at?: string;
+  expiresAt?: string;
+  expires_at?: string;
+  notes?: string;
+  createdAt?: string;
+  created_at?: string;
+  updatedAt?: string;
+  updated_at?: string;
+}
+
+export interface StaffAllowlistEntry {
+  id: string;
+  email: string;
+  name: string;
+  department?: string;
+  role: 'staff' | 'desk_operator';
+  isActive?: boolean;
+  is_active?: boolean;
+  createdAt?: string;
+  created_at?: string;
+  updatedAt?: string;
+  updated_at?: string;
+}
+
+export interface CampusDesk {
+  id: string;
+  name: string;
+  zone: string;
+  building: string;
+  roomNumber?: string;
+  hoursOfOperation?: string;
+  isActive: boolean;
+  isConfigured: boolean;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type ClaimLifecycleStatus =
+  | 'REQUESTED'
+  | 'UNDER_REVIEW'
+  | 'APPROVED_FOR_HANDOVER'
+  | 'HANDED_OVER'
+  | 'RESOLVED'
+  | 'REJECTED'
+  | 'WITHDRAWN'
+  | 'DISPUTED';
+
+export interface Claim {
+  id: string;
+  foundReportId?: string;
+  found_report_id?: string;
+  claimantId?: string;
+  claimant_id?: string;
+  linkedLostReportId?: string;
+  linked_lost_report_id?: string;
+  claimEvidence?: string;
+  claim_evidence?: string;
+  status: ClaimLifecycleStatus;
+  reviewNotes?: string;
+  review_notes?: string;
+  reviewedBy?: string;
+  reviewed_by?: string;
+  reviewedAt?: string;
+  reviewed_at?: string;
+  createdAt?: string;
+  created_at?: string;
+  updatedAt?: string;
+  updated_at?: string;
+  foundReport?: Report;
+  claimantName?: string;
+}
+
+export interface HandoverRecord {
+  id: string;
+  claimId: string;
+  foundReportId: string;
+  claimantId: string;
+  deskOperatorId: string;
+  deskLocation: string;
+  handoverStatus: 'PENDING_PHYSICAL_CONFIRMATION' | 'CUSTODY_VERIFIED' | 'COMPLETED' | 'CANCELLED';
+  itemConditionNotes?: string;
+  claimantIdVerified: boolean;
+  receiptConfirmed: boolean;
+  handedOverAt?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ReunionStory {

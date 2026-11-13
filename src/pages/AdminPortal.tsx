@@ -2,35 +2,29 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   AlertCircle,
-  Archive,
-  Calendar,
   CheckCircle2,
-  ChevronRight,
-  Clock3,
   FileText,
-  Image as ImageIcon,
   Loader2,
-  LockKeyhole,
-  MapPin,
   RefreshCw,
   Search,
   ShieldCheck,
-  Sparkles,
-  User,
-  X
+  Users,
+  AlertTriangle,
+  X,
+  History,
+  Building,
+  Plus
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { useAuth } from '../store/AuthContext';
 import {
   getReportImageSignedUrl,
-  isSensitiveImagePath,
   isStoragePath
 } from '../lib/storage';
 import { generateMatches } from '../utils/matching';
-import { getCategoryIllustration } from '../utils/categoryArt';
-import type { Category, Match, Report, ReportType } from '../types';
+import type { Category, Match, Report, ReportType, Claim, CampusMembership, StaffAllowlistEntry, AuditLog } from '../types';
 
-type AdminTab = 'active' | 'matched' | 'resolved';
+type MainSection = 'reports' | 'claims' | 'disputes' | 'memberships' | 'audit';
+type ReportSubTab = 'active' | 'matched' | 'resolved';
 
 interface AdminReportRow {
   id: string;
@@ -45,6 +39,11 @@ interface AdminReportRow {
   image_url?: string | null;
   status: Report['status'];
   created_at: string;
+  brand_model?: string | null;
+  color?: string | null;
+  distinguishing_features?: string | null;
+  campus_zone?: string | null;
+  custody_status?: string | null;
   has_private_verification?: boolean;
 }
 
@@ -80,6 +79,11 @@ const toReport = (row: AdminReportRow, reporterName: string): Report => {
     status: row.status,
     userId: row.user_id,
     createdAt: row.created_at,
+    brandModel: row.brand_model ?? undefined,
+    color: row.color ?? undefined,
+    distinguishingFeatures: row.distinguishing_features ?? undefined,
+    campusZone: row.campus_zone ?? undefined,
+    custodyStatus: (row.custody_status as Report['custodyStatus']) ?? undefined,
     hasPrivateVerification: Boolean(row.has_private_verification),
     reporterName
   };
@@ -122,20 +126,42 @@ const formatDateTime = (value?: string | null): string => {
 };
 
 export const AdminPortal: React.FC = () => {
-  const { profile } = useAuth();
   const [reports, setReports] = useState<Report[]>([]);
   const [persistedMatches, setPersistedMatches] = useState<Match[]>([]);
+  const [claims, setClaims] = useState<Claim[]>([]);
+  const [memberships, setMemberships] = useState<CampusMembership[]>([]);
+  const [staffAllowlist, setStaffAllowlist] = useState<StaffAllowlistEntry[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+
   const [loading, setLoading] = useState(Boolean(supabase));
-  const [error, setError] = useState<string | null>(
-    supabase ? null : 'Supabase is not configured. Administrative records are unavailable.'
-  );
-  const [matchNotice, setMatchNotice] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<AdminTab>('active');
+  const [error, setError] = useState<string | null>(null);
+  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+
+  // Navigation
+  const [activeSection, setActiveSection] = useState<MainSection>('reports');
+  const [reportSubTab, setReportSubTab] = useState<ReportSubTab>('active');
   const [search, setSearch] = useState('');
+
+  // Selected Report Modal
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
   const [imageLoading, setImageLoading] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
+
+  // Handover Resolution Modal State
+  const [resolvingClaim, setResolvingClaim] = useState<Claim | null>(null);
+  const [idVerified, setIdVerified] = useState(false);
+  const [conditionNotes, setConditionNotes] = useState('Standard verification completed. Item in good condition.');
+  const [resolutionLoading, setResolutionLoading] = useState(false);
+  const [resolutionError, setResolutionError] = useState<string | null>(null);
+
+  // New Staff Modal State
+  const [showAddStaffModal, setShowAddStaffModal] = useState(false);
+  const [newStaffEmail, setNewStaffEmail] = useState('');
+  const [newStaffName, setNewStaffName] = useState('');
+  const [newStaffDept, setNewStaffDept] = useState('');
+  const [newStaffRole, setNewStaffRole] = useState<'staff' | 'desk_operator'>('staff');
+  const [addStaffLoading, setAddStaffLoading] = useState(false);
 
   const loadRecords = useCallback(async () => {
     if (!supabase) return;
@@ -143,39 +169,32 @@ export const AdminPortal: React.FC = () => {
     try {
       const { data: isAdmin, error: adminError } = await supabase.rpc('is_current_user_admin');
 
-      if (adminError) {
-        setError(
-          'Administrative verification failed. Confirm that the stage-ready access hardening migration has been applied, then sign out and sign in again.'
-        );
-        return;
-      }
-
-      if (isAdmin !== true) {
+      if (adminError || isAdmin !== true) {
         setError('Your session does not carry the server-issued administrator role.');
+        setLoading(false);
         return;
       }
 
-      const [reportsResult, profilesResult, matchesResult] = await Promise.all([
-        supabase
-          .from('reports')
-          .select('*')
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('profiles')
-          .select('id, name'),
-        supabase
-          .from('matches')
-          .select('*')
-          .order('created_at', { ascending: false })
+      const [
+        reportsResult,
+        profilesResult,
+        matchesResult,
+        claimsResult,
+        membershipsResult,
+        staffResult,
+        auditResult
+      ] = await Promise.all([
+        supabase.from('reports').select('*').order('created_at', { ascending: false }),
+        supabase.from('profiles').select('id, name'),
+        supabase.from('matches').select('*').order('created_at', { ascending: false }),
+        supabase.from('claims').select('*').order('created_at', { ascending: false }),
+        supabase.from('campus_memberships').select('*').order('created_at', { ascending: false }),
+        supabase.from('staff_allowlist').select('*').order('created_at', { ascending: false }),
+        supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(50)
       ]);
 
       if (reportsResult.error) {
         setError(`Could not load reports: ${reportsResult.error.message}`);
-        return;
-      }
-
-      if (profilesResult.error) {
-        setError(`Could not load reporter profiles: ${profilesResult.error.message}`);
         return;
       }
 
@@ -189,13 +208,71 @@ export const AdminPortal: React.FC = () => {
         )
       );
 
-      if (matchesResult.error) {
-        setPersistedMatches([]);
-        setMatchNotice(
-          'Persisted match records are unavailable. Showing live-generated candidate matches only.'
+      if (!matchesResult.error && matchesResult.data) {
+        setPersistedMatches((matchesResult.data as AdminMatchRow[]).map(toMatch));
+      }
+
+      if (!claimsResult.error && claimsResult.data) {
+        setClaims(
+          (claimsResult.data as Record<string, unknown>[]).map(row => ({
+            id: row.id as string,
+            foundReportId: (row.found_report_id || row.foundReportId || '') as string,
+            found_report_id: (row.found_report_id || row.foundReportId || '') as string,
+            claimantId: (row.claimant_id || row.claimantId || '') as string,
+            claimant_id: (row.claimant_id || row.claimantId || '') as string,
+            linkedLostReportId: (row.linked_lost_report_id || row.linkedLostReportId) as string | undefined,
+            claimEvidence: (row.claim_evidence || row.claimEvidence || '') as string,
+            claim_evidence: (row.claim_evidence || row.claimEvidence || '') as string,
+            status: row.status as Claim['status'],
+            reviewNotes: (row.review_notes || row.reviewNotes) as string | undefined,
+            reviewedBy: (row.reviewed_by || row.reviewedBy) as string | undefined,
+            reviewedAt: (row.reviewed_at || row.reviewedAt) as string | undefined,
+            createdAt: (row.created_at || row.createdAt || '') as string,
+            created_at: (row.created_at || row.createdAt || '') as string,
+            updatedAt: (row.updated_at || row.updatedAt || '') as string
+          }))
         );
-      } else {
-        setPersistedMatches(((matchesResult.data || []) as AdminMatchRow[]).map(toMatch));
+      }
+
+      if (!membershipsResult.error && membershipsResult.data) {
+        setMemberships(
+          (membershipsResult.data as Record<string, unknown>[]).map(row => ({
+            id: row.id as string,
+            userId: (row.user_id || row.userId || '') as string,
+            user_id: (row.user_id || row.userId || '') as string,
+            membershipType: (row.membership_type || row.membershipType || 'student') as CampusMembership['membershipType'],
+            membership_type: (row.membership_type || row.membershipType || 'student') as CampusMembership['membershipType'],
+            status: (row.status || 'ACTIVE') as CampusMembership['status'],
+            approvedBy: (row.approved_by || row.approvedBy) as string | undefined,
+            approvedAt: (row.approved_at || row.approvedAt) as string | undefined,
+            approved_at: (row.approved_at || row.approvedAt) as string | undefined,
+            expiresAt: (row.expires_at || row.expiresAt) as string | undefined,
+            notes: (row.notes || '') as string | undefined,
+            createdAt: (row.created_at || row.createdAt || '') as string,
+            created_at: (row.created_at || row.createdAt || '') as string,
+            updatedAt: (row.updated_at || row.updatedAt || '') as string
+          }))
+        );
+      }
+
+      if (!staffResult.error && staffResult.data) {
+        setStaffAllowlist(
+          (staffResult.data as Record<string, unknown>[]).map(row => ({
+            id: row.id as string,
+            email: row.email as string,
+            name: row.name as string,
+            department: (row.department || 'General') as string,
+            role: (row.role || 'staff') as StaffAllowlistEntry['role'],
+            isActive: Boolean(row.is_active ?? row.isActive),
+            is_active: Boolean(row.is_active ?? row.isActive),
+            createdAt: (row.created_at || row.createdAt || '') as string,
+            updatedAt: (row.updated_at || row.updatedAt || '') as string
+          }))
+        );
+      }
+
+      if (!auditResult.error && auditResult.data) {
+        setAuditLogs(auditResult.data as AuditLog[]);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load administrative records.');
@@ -204,26 +281,25 @@ export const AdminPortal: React.FC = () => {
     }
   }, []);
 
-  const refreshRecords = useCallback(() => {
-    setLoading(true);
-    setError(null);
-    setMatchNotice(null);
-    void loadRecords();
-  }, [loadRecords]);
-
   useEffect(() => {
     void loadRecords();
   }, [loadRecords]);
 
+  const refreshRecords = useCallback(() => {
+    setLoading(true);
+    setError(null);
+    setActionSuccess(null);
+    void loadRecords();
+  }, [loadRecords]);
+
+  // Derived matching
   const generatedMatches = useMemo(() => generateMatches(reports), [reports]);
 
   const matches = useMemo(() => {
     const merged = new Map<string, Match>();
-
     for (const match of generatedMatches) {
       merged.set(`${match.lostReportId}:${match.foundReportId}`, match);
     }
-
     for (const match of persistedMatches) {
       const key = `${match.lostReportId}:${match.foundReportId}`;
       const generated = merged.get(key);
@@ -240,7 +316,6 @@ export const AdminPortal: React.FC = () => {
           : match
       );
     }
-
     return [...merged.values()];
   }, [generatedMatches, persistedMatches]);
 
@@ -259,20 +334,110 @@ export const AdminPortal: React.FC = () => {
     return map;
   }, [reports]);
 
-  const activeCount = reports.filter(report => report.status !== 'resolved').length;
-  const resolvedCount = reports.filter(report => report.status === 'resolved').length;
-  const matchedCount = reports.filter(report => matchedReportIds.has(report.id)).length;
+  // Handover Execution
+  const handleExecuteHandover = async () => {
+    if (!supabase || !resolvingClaim) return;
+    if (!idVerified) {
+      setResolutionError('Student identity card / PRN must be physically verified.');
+      return;
+    }
+
+    setResolutionLoading(true);
+    setResolutionError(null);
+
+    try {
+      const { data, error: rpcErr } = await supabase.rpc('complete_handover_resolution', {
+        p_claim_id: resolvingClaim.id,
+        p_desk_location: 'Central Campus Helpdesk',
+        p_condition_notes: conditionNotes.trim(),
+        p_id_verified: true
+      });
+
+      if (rpcErr) {
+        setResolutionError(rpcErr.message);
+        setResolutionLoading(false);
+        return;
+      }
+
+      setActionSuccess(`Physical handover recorded and claim resolved successfully! Handover ID: ${(data as { handover_id?: string })?.handover_id || 'OK'}`);
+      setResolvingClaim(null);
+      setIdVerified(false);
+      refreshRecords();
+    } catch (err) {
+      setResolutionError(err instanceof Error ? err.message : 'Failed to complete handover.');
+    } finally {
+      setResolutionLoading(false);
+    }
+  };
+
+  // Add Staff Allowlist Entry
+  const handleAddStaff = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!supabase || !newStaffEmail.trim() || !newStaffName.trim()) return;
+
+    setAddStaffLoading(true);
+    try {
+      const { error: insertErr } = await supabase.from('staff_allowlist').insert({
+        email: newStaffEmail.trim().toLowerCase(),
+        name: newStaffName.trim(),
+        department: newStaffDept.trim() || 'General',
+        role: newStaffRole
+      });
+
+      if (insertErr) {
+        setError(`Failed to add staff allowlist entry: ${insertErr.message}`);
+      } else {
+        setActionSuccess(`Staff member ${newStaffName} (${newStaffEmail}) successfully pre-approved.`);
+        setShowAddStaffModal(false);
+        setNewStaffEmail('');
+        setNewStaffName('');
+        setNewStaffDept('');
+        refreshRecords();
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error adding staff entry.');
+    } finally {
+      setAddStaffLoading(false);
+    }
+  };
+
+  // Toggle Staff Active Status
+  const handleToggleStaffStatus = async (id: string, currentStatus: boolean) => {
+    if (!supabase) return;
+    try {
+      await supabase.from('staff_allowlist').update({ is_active: !currentStatus }).eq('id', id);
+      refreshRecords();
+    } catch {
+      // Ignored
+    }
+  };
+
+  // Toggle Membership Status
+  const handleToggleMembershipStatus = async (userId: string, currentStatus: string) => {
+    if (!supabase || !userId) return;
+    const nextStatus = currentStatus === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE';
+    try {
+      await supabase.from('campus_memberships').update({ status: nextStatus, updated_at: new Date().toISOString() }).eq('user_id', userId);
+      setActionSuccess(`Membership status updated to ${nextStatus}.`);
+      refreshRecords();
+    } catch {
+      // Ignored
+    }
+  };
+
+  const activeCount = reports.filter(r => r.status !== 'resolved').length;
+  const resolvedCount = reports.filter(r => r.status === 'resolved').length;
+  const pendingClaimsCount = claims.filter(c => ['REQUESTED', 'UNDER_REVIEW', 'APPROVED_FOR_HANDOVER'].includes(c.status)).length;
+  const disputeClaimsCount = claims.filter(c => c.status === 'DISPUTED').length;
 
   const filteredReports = useMemo(() => {
     const query = search.trim().toLowerCase();
-
     return reports.filter(report => {
-      if (activeTab === 'active' && report.status === 'resolved') return false;
-      if (activeTab === 'resolved' && report.status !== 'resolved') return false;
-      if (activeTab === 'matched' && !matchedReportIds.has(report.id)) return false;
+      if (reportSubTab === 'active' && report.status === 'resolved') return false;
+      if (reportSubTab === 'resolved' && report.status !== 'resolved') return false;
+      if (reportSubTab === 'matched' && !matchedReportIds.has(report.id)) return false;
 
       if (!query) return true;
-
       return [
         report.id,
         report.title,
@@ -281,12 +446,9 @@ export const AdminPortal: React.FC = () => {
         report.category,
         report.type,
         report.reporterName || ''
-      ]
-        .join(' ')
-        .toLowerCase()
-        .includes(query);
+      ].join(' ').toLowerCase().includes(query);
     });
-  }, [activeTab, matchedReportIds, reports, search]);
+  }, [reportSubTab, matchedReportIds, reports, search]);
 
   const openRecord = useCallback((reportId: string) => {
     const report = reportById.get(reportId);
@@ -297,14 +459,6 @@ export const AdminPortal: React.FC = () => {
   }, [reportById]);
 
   const selectedReport = selectedId ? reportById.get(selectedId) || null : null;
-  const selectedMatches = useMemo(() => {
-    if (!selectedReport) return [];
-    return matches
-      .filter(match =>
-        match.lostReportId === selectedReport.id || match.foundReportId === selectedReport.id
-      )
-      .sort((a, b) => b.score.score - a.score.score);
-  }, [matches, selectedReport]);
 
   useEffect(() => {
     let cancelled = false;
@@ -323,605 +477,819 @@ export const AdminPortal: React.FC = () => {
     };
   }, [selectedReport?.id, selectedReport?.imagePath, selectedReport?.imageUrl]);
 
-  useEffect(() => {
-    if (!selectedId) return;
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setSelectedId(null);
-    };
-
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [selectedId]);
-
-  const tabs: Array<{ id: AdminTab; label: string; count: number }> = [
-    { id: 'active', label: 'Active records', count: activeCount },
-    { id: 'matched', label: 'Matched', count: matchedCount },
-    { id: 'resolved', label: 'Resolved archive', count: resolvedCount }
-  ];
-
-  const renderStatus = (report: Report) => {
-    if (report.status === 'resolved') {
-      return <span className="badge badge-match">Resolved</span>;
-    }
-    return report.type === 'lost'
-      ? <span className="badge badge-lost">Lost</span>
-      : <span className="badge badge-found">Found</span>;
-  };
+  if (loading) {
+    return (
+      <div style={{ maxWidth: '1000px', margin: '0 auto', padding: '80px 20px', textAlign: 'center' }}>
+        <Loader2 size={36} style={{ animation: 'spin 1s linear infinite', margin: '0 auto 16px', color: 'var(--primary)' }} />
+        <p style={{ color: 'var(--text-muted)' }}>Authenticating administrative console...</p>
+      </div>
+    );
+  }
 
   return (
-    <div style={{ paddingBottom: '52px', maxWidth: '1120px', margin: '0 auto' }}>
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'flex-start',
-          flexWrap: 'wrap',
-          gap: '18px',
-          marginBottom: '24px'
-        }}
-      >
+    <div style={{ maxWidth: '1200px', margin: '0 auto', paddingBottom: '60px' }}>
+      
+      {/* Top Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px', marginBottom: '20px' }}>
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
-            <span className="mono-token mono-token-amber">ADMINISTRATOR REGISTRY</span>
-            <span className="mono-token mono-token-subtle">RESTRICTED ACCESS</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+            <span style={{ fontSize: '0.75rem', fontWeight: 650, padding: '2px 8px', borderRadius: '4px', backgroundColor: 'var(--primary-light)', color: 'var(--primary)' }}>
+              ADMINISTRATIVE AUDIT CONSOLE
+            </span>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>SANJAY GHODAWAT UNIVERSITY</span>
           </div>
-          <h1 style={{ fontSize: '2.4rem', fontWeight: 700, letterSpacing: '-0.035em', margin: 0, lineHeight: 1.15 }}>
-            Campus Oversight Docket
+          <h1 style={{ fontSize: '1.75rem', fontWeight: 650, color: 'var(--text-main)', margin: 0 }}>
+            LostLink Administration & Helpdesk
           </h1>
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.96rem', marginTop: '6px', maxWidth: '680px', lineHeight: 1.55 }}>
-            Read-only access to active reports, generated match candidates, and the resolved archive.
-            Administrative identity is verified against the server-issued session claim.
-          </p>
         </div>
 
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px',
-            padding: '9px 14px',
-            borderRadius: '999px',
-            backgroundColor: 'var(--success-light)',
-            border: '1px solid var(--success-border)',
-            color: '#065F46',
-            fontSize: '0.8rem',
-            fontWeight: 650
-          }}
+        <button 
+          onClick={refreshRecords}
+          className="btn btn-secondary"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem' }}
         >
-          <ShieldCheck size={16} />
-          <span>{profile?.name || 'Administrator'} · verified</span>
+          <RefreshCw size={14} /> Refresh Data
+        </button>
+      </div>
+
+      {/* Configurable Campus Helpdesk Indicator Banner */}
+      <div style={{
+        padding: '14px 18px',
+        backgroundColor: '#FFFFFF',
+        border: '1px solid var(--border)',
+        borderRadius: 'var(--radius)',
+        marginBottom: '20px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        flexWrap: 'wrap',
+        gap: '12px'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ width: '36px', height: '36px', borderRadius: '6px', backgroundColor: 'var(--primary-light)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Building size={18} />
+          </div>
+          <div>
+            <div style={{ fontSize: '0.88rem', fontWeight: 650, color: 'var(--text-main)' }}>
+              Central Campus Helpdesk — Configuration Pending / Managed by Initial Administrator
+            </div>
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+              Physical helpdesk operator provisioning remains pending. Current desk operations managed by vachannoubade@gmail.com.
+            </div>
+          </div>
+        </div>
+        <span style={{ fontSize: '0.72rem', padding: '3px 8px', borderRadius: '4px', backgroundColor: 'var(--bg-color)', border: '1px solid var(--border)', color: 'var(--text-secondary)', fontWeight: 600 }}>
+          DESK CONFIGURATION INCOMPLETE
+        </span>
+      </div>
+
+      {/* KPI Stats Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '12px', marginBottom: '24px' }}>
+        <div className="card" style={{ padding: '16px', backgroundColor: '#FFFFFF', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+          <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', fontWeight: 650, textTransform: 'uppercase' }}>Active Reports</div>
+          <div style={{ fontSize: '1.6rem', fontWeight: 700, color: 'var(--text-main)', marginTop: '4px' }}>{activeCount}</div>
+        </div>
+        <div className="card" style={{ padding: '16px', backgroundColor: '#FFFFFF', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+          <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', fontWeight: 650, textTransform: 'uppercase' }}>Claims in Queue</div>
+          <div style={{ fontSize: '1.6rem', fontWeight: 700, color: pendingClaimsCount > 0 ? 'var(--primary)' : 'var(--text-main)', marginTop: '4px' }}>
+            {pendingClaimsCount}
+          </div>
+        </div>
+        <div className="card" style={{ padding: '16px', backgroundColor: '#FFFFFF', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+          <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', fontWeight: 650, textTransform: 'uppercase' }}>Competing Disputes</div>
+          <div style={{ fontSize: '1.6rem', fontWeight: 700, color: disputeClaimsCount > 0 ? 'var(--danger)' : 'var(--text-main)', marginTop: '4px' }}>
+            {disputeClaimsCount}
+          </div>
+        </div>
+        <div className="card" style={{ padding: '16px', backgroundColor: '#FFFFFF', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+          <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', fontWeight: 650, textTransform: 'uppercase' }}>Resolved Archive</div>
+          <div style={{ fontSize: '1.6rem', fontWeight: 700, color: 'var(--success)', marginTop: '4px' }}>{resolvedCount}</div>
+        </div>
+        <div className="card" style={{ padding: '16px', backgroundColor: '#FFFFFF', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+          <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', fontWeight: 650, textTransform: 'uppercase' }}>Campus Memberships</div>
+          <div style={{ fontSize: '1.6rem', fontWeight: 700, color: 'var(--text-main)', marginTop: '4px' }}>{memberships.length}</div>
         </div>
       </div>
+
+      {actionSuccess && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', backgroundColor: 'var(--success-light)', color: 'var(--success)', borderRadius: '4px', fontSize: '0.85rem', marginBottom: '18px' }}>
+          <CheckCircle2 size={16} />
+          <span>{actionSuccess}</span>
+        </div>
+      )}
 
       {error && (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'flex-start',
-            gap: '12px',
-            padding: '14px 16px',
-            backgroundColor: '#FEF2F2',
-            border: '1px solid #FECACA',
-            borderRadius: 'var(--radius-sm)',
-            color: '#991B1B',
-            marginBottom: '20px',
-            fontSize: '0.9rem',
-            lineHeight: 1.5
-          }}
-          role="alert"
-        >
-          <AlertCircle size={18} style={{ flexShrink: 0, marginTop: '1px' }} />
-          <div style={{ flex: 1 }}>{error}</div>
-          <button
-            type="button"
-            className="btn btn-ghost"
-            style={{ padding: '2px 4px', color: '#991B1B' }}
-            onClick={() => setError(null)}
-            aria-label="Dismiss error"
-          >
-            <X size={16} />
-          </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', backgroundColor: 'var(--danger-light)', color: 'var(--danger)', borderRadius: '4px', fontSize: '0.85rem', marginBottom: '18px' }}>
+          <AlertCircle size={16} />
+          <span>{error}</span>
         </div>
       )}
 
-      {matchNotice && (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px',
-            padding: '11px 14px',
-            backgroundColor: 'var(--warning-light)',
-            border: '1px solid var(--warning-border)',
-            borderRadius: 'var(--radius-sm)',
-            color: '#92400E',
-            marginBottom: '20px',
-            fontSize: '0.84rem'
-          }}
-          role="status"
-        >
-          <Sparkles size={16} style={{ flexShrink: 0 }} />
-          <span>{matchNotice}</span>
-        </div>
-      )}
-
-      <div className="admin-stat-grid">
+      {/* Main Navigation Tabs */}
+      <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border)', marginBottom: '20px' }}>
         {[
-          { label: 'ACTIVE RECORDS', value: activeCount, color: 'var(--primary)', icon: <FileText size={17} /> },
-          { label: 'MATCHED RECORDS', value: matchedCount, color: 'var(--warning)', icon: <Sparkles size={17} /> },
-          { label: 'RESOLVED ARCHIVE', value: resolvedCount, color: 'var(--success)', icon: <Archive size={17} /> },
-          { label: 'TOTAL RECORDS', value: reports.length, color: 'var(--text-main)', icon: <ShieldCheck size={17} /> }
-        ].map(stat => (
-          <div
-            key={stat.label}
-            className="card"
-            style={{ padding: '16px 18px', boxShadow: 'var(--shadow-sm)' }}
-          >
-            <div
+          { id: 'reports', label: 'Reports & Matches', icon: FileText, badge: reports.length },
+          { id: 'claims', label: 'Claims & Handover Queue', icon: ShieldCheck, badge: pendingClaimsCount },
+          { id: 'disputes', label: 'Disputes', icon: AlertTriangle, badge: disputeClaimsCount },
+          { id: 'memberships', label: 'Members & Allowlist', icon: Users, badge: memberships.length },
+          { id: 'audit', label: 'Audit Logs', icon: History, badge: auditLogs.length }
+        ].map(tab => {
+          const Icon = tab.icon;
+          const isActive = activeSection === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveSection(tab.id as MainSection)}
               style={{
-                display: 'flex',
+                display: 'inline-flex',
                 alignItems: 'center',
-                justifyContent: 'space-between',
                 gap: '8px',
-                color: 'var(--text-muted)',
-                fontSize: '0.68rem',
-                fontFamily: 'var(--font-mono)',
-                fontWeight: 700,
-                letterSpacing: '0.04em',
-                marginBottom: '8px'
+                padding: '10px 16px',
+                border: 'none',
+                background: 'none',
+                borderBottom: `2px solid ${isActive ? 'var(--primary)' : 'transparent'}`,
+                color: isActive ? 'var(--primary)' : 'var(--text-secondary)',
+                fontWeight: isActive ? 650 : 500,
+                fontSize: '0.88rem',
+                cursor: 'pointer',
+                marginBottom: '-1px'
               }}
             >
-              <span>{stat.label}</span>
-              <span style={{ color: stat.color }}>{stat.icon}</span>
-            </div>
-            <div style={{ fontSize: '1.9rem', lineHeight: 1, fontWeight: 750, fontFamily: 'var(--font-mono)', color: stat.color }}>
-              {loading ? '—' : stat.value}
-            </div>
-          </div>
-        ))}
+              <Icon size={16} />
+              <span>{tab.label}</span>
+              {tab.badge > 0 && (
+                <span style={{
+                  padding: '1px 6px',
+                  borderRadius: '999px',
+                  fontSize: '0.72rem',
+                  backgroundColor: isActive ? 'var(--primary)' : 'var(--bg-color)',
+                  color: isActive ? '#FFFFFF' : 'var(--text-secondary)',
+                  fontWeight: 650
+                }}>
+                  {tab.badge}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
-      <div className="admin-toolbar card">
-        <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-          {tabs.map(tab => {
-            const isActive = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setActiveTab(tab.id)}
-                aria-pressed={isActive}
-                style={{
-                  padding: '8px 12px',
-                  borderRadius: '7px',
-                  border: isActive ? '1px solid var(--border)' : '1px solid transparent',
-                  backgroundColor: isActive ? '#FFFFFF' : 'transparent',
-                  boxShadow: isActive ? 'var(--shadow-sm)' : 'none',
-                  color: isActive ? 'var(--text-main)' : 'var(--text-muted)',
-                  fontSize: '0.82rem',
-                  fontWeight: 650,
-                  transition: 'var(--transition-fast)'
-                }}
-              >
-                {tab.label}
-                <span
+      {/* SECTION 1: REPORTS */}
+      {activeSection === 'reports' && (
+        <div>
+          {/* Sub tabs & Search */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
+            <div style={{ display: 'flex', gap: '6px' }}>
+              {[
+                { id: 'active', label: 'Active Reports', count: activeCount },
+                { id: 'matched', label: 'Matched Candidates', count: matchedReportIds.size },
+                { id: 'resolved', label: 'Resolved Archive', count: resolvedCount }
+              ].map(sub => (
+                <button
+                  key={sub.id}
+                  onClick={() => setReportSubTab(sub.id as ReportSubTab)}
                   style={{
-                    marginLeft: '7px',
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: '0.7rem',
-                    color: isActive ? 'var(--primary)' : 'var(--text-tertiary)'
+                    padding: '6px 12px',
+                    borderRadius: '4px',
+                    fontSize: '0.82rem',
+                    fontWeight: 500,
+                    border: '1px solid var(--border)',
+                    backgroundColor: reportSubTab === sub.id ? 'var(--text-main)' : '#FFFFFF',
+                    color: reportSubTab === sub.id ? '#FFFFFF' : 'var(--text-secondary)',
+                    cursor: 'pointer'
                   }}
                 >
-                  {tab.count}
-                </span>
-              </button>
-            );
-          })}
-        </div>
+                  {sub.label} ({sub.count})
+                </button>
+              ))}
+            </div>
 
-        <div className="admin-toolbar-actions">
-          <div style={{ position: 'relative', flex: 1, minWidth: '180px', maxWidth: '340px' }}>
-            <Search size={15} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-            <input
-              type="search"
-              className="form-control"
-              value={search}
-              onChange={event => setSearch(event.target.value)}
-              placeholder="Search title, owner, location, ref..."
-              aria-label="Search administrative records"
-              style={{ paddingLeft: '36px', height: '38px', fontSize: '0.84rem' }}
-            />
+            <div style={{ position: 'relative', width: '280px' }}>
+              <input
+                type="text"
+                placeholder="Search reports..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="form-control"
+                style={{ fontSize: '0.84rem', paddingLeft: '32px' }}
+              />
+              <Search size={14} color="var(--text-muted)" style={{ position: 'absolute', left: '10px', top: '10px' }} />
+            </div>
           </div>
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={refreshRecords}
-            disabled={loading}
-            style={{ padding: '8px 12px', fontSize: '0.8rem', whiteSpace: 'nowrap' }}
-          >
-            <RefreshCw size={14} style={loading ? { animation: 'spin 1s linear infinite' } : undefined} />
-            Refresh
-          </button>
-        </div>
-      </div>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginBottom: '10px', flexWrap: 'wrap' }}>
-        <span className="docket-meta">
-          {loading ? 'QUERYING REGISTRY…' : `${filteredReports.length} RECORD${filteredReports.length === 1 ? '' : 'S'} DISPLAYED`}
-        </span>
-        <span className="docket-meta">READ-ONLY OVERSIGHT · NO CLIENT-SIDE MUTATIONS</span>
-      </div>
-
-      {loading ? (
-        <div className="card" style={{ padding: '64px 24px', textAlign: 'center' }}>
-          <Loader2 size={34} style={{ animation: 'spin 1s linear infinite', margin: '0 auto 14px', color: 'var(--primary)' }} />
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Loading campus administrative records…</p>
-        </div>
-      ) : filteredReports.length === 0 ? (
-        <div className="card" style={{ padding: '56px 24px', textAlign: 'center' }}>
-          <div
-            style={{
-              width: '56px',
-              height: '56px',
-              borderRadius: '16px',
-              backgroundColor: 'var(--bg-secondary)',
-              color: 'var(--text-muted)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              margin: '0 auto 16px'
-            }}
-          >
-            <Archive size={26} />
+          {/* Reports Table */}
+          <div className="card" style={{ backgroundColor: '#FFFFFF', borderRadius: 'var(--radius)', border: '1px solid var(--border)', overflow: 'hidden' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.86rem' }}>
+              <thead>
+                <tr style={{ backgroundColor: 'var(--bg-color)', borderBottom: '1px solid var(--border)', color: 'var(--text-muted)', fontSize: '0.74rem', textTransform: 'uppercase' }}>
+                  <th style={{ padding: '12px 16px' }}>Status</th>
+                  <th style={{ padding: '12px 16px' }}>Title & Brand</th>
+                  <th style={{ padding: '12px 16px' }}>Category</th>
+                  <th style={{ padding: '12px 16px' }}>Location / Zone</th>
+                  <th style={{ padding: '12px 16px' }}>Date</th>
+                  <th style={{ padding: '12px 16px' }}>Reporter</th>
+                  <th style={{ padding: '12px 16px', textAlign: 'right' }}>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredReports.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} style={{ padding: '36px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                      No reports found in this category.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredReports.map(report => (
+                    <tr key={report.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                      <td style={{ padding: '12px 16px' }}>
+                        <span style={{
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          fontSize: '0.72rem',
+                          fontWeight: 650,
+                          backgroundColor: report.status === 'resolved' ? 'var(--bg-color)' : report.type === 'lost' ? 'var(--danger-light)' : 'var(--success-light)',
+                          color: report.status === 'resolved' ? 'var(--text-muted)' : report.type === 'lost' ? 'var(--danger)' : 'var(--success)'
+                        }}>
+                          {report.status.toUpperCase()}
+                        </span>
+                      </td>
+                      <td style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--text-main)' }}>
+                        <div>{report.title}</div>
+                        {report.brandModel && (
+                          <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', fontWeight: 400 }}>
+                            {report.brandModel} {report.color ? `• ${report.color}` : ''}
+                          </div>
+                        )}
+                      </td>
+                      <td style={{ padding: '12px 16px', color: 'var(--text-secondary)' }}>
+                        {report.category}
+                      </td>
+                      <td style={{ padding: '12px 16px', color: 'var(--text-secondary)' }}>
+                        {report.campusZone || report.location}
+                      </td>
+                      <td style={{ padding: '12px 16px', color: 'var(--text-secondary)' }}>
+                        {formatDate(report.date)}
+                      </td>
+                      <td style={{ padding: '12px 16px', color: 'var(--text-secondary)' }}>
+                        {report.reporterName || 'Student'}
+                      </td>
+                      <td style={{ padding: '12px 16px', textAlign: 'right' }}>
+                        <button 
+                          onClick={() => openRecord(report.id)}
+                          className="btn btn-secondary"
+                          style={{ padding: '4px 10px', fontSize: '0.78rem' }}
+                        >
+                          Details
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
-          <h2 style={{ fontSize: '1.08rem', marginBottom: '6px' }}>No matching records</h2>
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem' }}>
-            {search ? 'Try a broader search term or another record tab.' : 'This record view is currently empty.'}
-          </p>
-        </div>
-      ) : (
-        <div className="card" style={{ overflow: 'hidden' }}>
-          <div className="admin-record-header">
-            <span>RECORD</span>
-            <span>LOCATION</span>
-            <span>STATUS</span>
-            <span>FILED</span>
-            <span />
-          </div>
-          {filteredReports.map(report => {
-            const matchCount = matches.filter(
-              match => match.lostReportId === report.id || match.foundReportId === report.id
-            ).length;
-
-            return (
-              <button
-                key={report.id}
-                type="button"
-                className="admin-record-row"
-                onClick={() => openRecord(report.id)}
-                aria-label={`Open record ${report.title}`}
-              >
-                <div style={{ minWidth: 0, textAlign: 'left' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginBottom: '4px' }}>
-                    <span className="mono-token mono-token-subtle" style={{ fontSize: '0.62rem', padding: '2px 6px' }}>
-                      {report.type === 'lost' ? 'LOST INQUIRY' : 'FOUND CUSTODY'}
-                    </span>
-                    {matchCount > 0 && (
-                      <span className="mono-token mono-token-amber" style={{ fontSize: '0.62rem', padding: '2px 6px' }}>
-                        {matchCount} MATCH{matchCount === 1 ? '' : 'ES'}
-                      </span>
-                    )}
-                    {report.hasPrivateVerification && (
-                      <LockKeyhole size={12} style={{ color: 'var(--text-muted)' }} aria-label="Private verification configured" />
-                    )}
-                  </div>
-                  <div
-                    style={{
-                      fontWeight: 650,
-                      fontSize: '0.91rem',
-                      color: 'var(--text-main)',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap'
-                    }}
-                  >
-                    {report.title}
-                  </div>
-                  <div style={{ color: 'var(--text-muted)', fontSize: '0.74rem', marginTop: '2px' }}>
-                    {report.reporterName} · {report.category} · REF #LL-{report.id.slice(0, 8).toUpperCase()}
-                  </div>
-                </div>
-
-                <div className="admin-record-col-extra" style={{ textAlign: 'left', minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
-                    <MapPin size={13} style={{ flexShrink: 0 }} />
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{report.location}</span>
-                  </div>
-                </div>
-
-                <div style={{ textAlign: 'left' }}>{renderStatus(report)}</div>
-
-                <div className="admin-record-col-extra" style={{ textAlign: 'left', color: 'var(--text-muted)', fontSize: '0.78rem' }}>
-                  {formatDate(report.status === 'resolved' ? report.createdAt : report.date)}
-                </div>
-
-                <ChevronRight size={16} style={{ color: 'var(--text-tertiary)' }} />
-              </button>
-            );
-          })}
         </div>
       )}
 
+      {/* SECTION 2: CLAIMS & HANDOVER QUEUE */}
+      {activeSection === 'claims' && (
+        <div>
+          <div className="card" style={{ backgroundColor: '#FFFFFF', borderRadius: 'var(--radius)', border: '1px solid var(--border)', overflow: 'hidden' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.86rem' }}>
+              <thead>
+                <tr style={{ backgroundColor: 'var(--bg-color)', borderBottom: '1px solid var(--border)', color: 'var(--text-muted)', fontSize: '0.74rem', textTransform: 'uppercase' }}>
+                  <th style={{ padding: '12px 16px' }}>Claim Status</th>
+                  <th style={{ padding: '12px 16px' }}>Target Found Item</th>
+                  <th style={{ padding: '12px 16px' }}>Claimant Evidence (Private)</th>
+                  <th style={{ padding: '12px 16px' }}>Submitted</th>
+                  <th style={{ padding: '12px 16px', textAlign: 'right' }}>Desk Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {claims.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} style={{ padding: '36px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                      No claims currently submitted.
+                    </td>
+                  </tr>
+                ) : (
+                  claims.map(claim => {
+                    const targetReportId = claim.foundReportId || claim.found_report_id || '';
+                    const foundItem = reportById.get(targetReportId);
+                    return (
+                      <tr key={claim.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td style={{ padding: '12px 16px' }}>
+                          <span style={{
+                            padding: '2px 8px',
+                            borderRadius: '4px',
+                            fontSize: '0.72rem',
+                            fontWeight: 700,
+                            backgroundColor: 
+                              claim.status === 'APPROVED_FOR_HANDOVER' ? 'var(--success-light)' :
+                              claim.status === 'DISPUTED' ? 'var(--danger-light)' :
+                              claim.status === 'RESOLVED' ? 'var(--bg-color)' : 'var(--primary-light)',
+                            color: 
+                              claim.status === 'APPROVED_FOR_HANDOVER' ? 'var(--success)' :
+                              claim.status === 'DISPUTED' ? 'var(--danger)' :
+                              claim.status === 'RESOLVED' ? 'var(--text-muted)' : 'var(--primary)'
+                          }}>
+                            {claim.status.replace(/_/g, ' ')}
+                          </span>
+                        </td>
+                        <td style={{ padding: '12px 16px' }}>
+                          <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>
+                            {foundItem?.title || targetReportId.slice(0, 8)}
+                          </div>
+                          <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+                            {foundItem?.campusZone || foundItem?.location || 'Campus Location'}
+                          </div>
+                        </td>
+                        <td style={{ padding: '12px 16px', maxWidth: '340px' }}>
+                          <div style={{ fontSize: '0.84rem', color: 'var(--text-main)', lineHeight: 1.4, backgroundColor: 'var(--bg-color)', padding: '6px 10px', borderRadius: '4px', border: '1px solid var(--border)' }}>
+                            "{claim.claimEvidence || claim.claim_evidence}"
+                          </div>
+                        </td>
+                        <td style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
+                          {formatDateTime(claim.createdAt || claim.created_at)}
+                        </td>
+                        <td style={{ padding: '12px 16px', textAlign: 'right' }}>
+                          {claim.status !== 'RESOLVED' && claim.status !== 'REJECTED' && (
+                            <button
+                              onClick={() => {
+                                setResolvingClaim(claim);
+                                setResolutionError(null);
+                                setIdVerified(false);
+                              }}
+                              className="btn btn-primary"
+                              style={{ padding: '4px 10px', fontSize: '0.78rem' }}
+                            >
+                              Authorize Handover
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* SECTION 3: DISPUTES */}
+      {activeSection === 'disputes' && (
+        <div>
+          <div style={{ marginBottom: '16px', fontSize: '0.88rem', color: 'var(--text-secondary)' }}>
+            When multiple students claim the same found specimen, the recovery state machine automatically tags all competing claims as <strong>DISPUTED</strong>. Review evidence side-by-side prior to authorizing return.
+          </div>
+
+          {claims.filter(c => c.status === 'DISPUTED').length === 0 ? (
+            <div className="card" style={{ padding: '48px', textAlign: 'center', backgroundColor: '#FFFFFF', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
+              <CheckCircle2 size={36} color="var(--success)" style={{ margin: '0 auto 12px' }} />
+              <div style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--text-main)' }}>No Active Disputes</div>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: '4px 0 0 0' }}>
+                All campus found items have singular or resolved claims.
+              </p>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {claims.filter(c => c.status === 'DISPUTED').map(disputeClaim => {
+                const targetReportId = disputeClaim.foundReportId || disputeClaim.found_report_id || '';
+                const foundItem = reportById.get(targetReportId);
+                return (
+                  <div key={disputeClaim.id} className="card" style={{ padding: '20px', backgroundColor: '#FFFFFF', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+                      <div>
+                        <span style={{ fontSize: '0.72rem', padding: '2px 8px', borderRadius: '4px', backgroundColor: 'var(--danger-light)', color: 'var(--danger)', fontWeight: 700 }}>
+                          DISPUTED CLAIM
+                        </span>
+                        <h3 style={{ fontSize: '1.05rem', fontWeight: 650, margin: '6px 0 2px 0', color: 'var(--text-main)' }}>
+                          Item: {foundItem?.title || targetReportId}
+                        </h3>
+                        <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                          Found at {foundItem?.location} on {formatDate(foundItem?.date)}
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          setResolvingClaim(disputeClaim);
+                          setResolutionError(null);
+                          setIdVerified(false);
+                        }}
+                        className="btn btn-primary"
+                        style={{ padding: '6px 12px', fontSize: '0.82rem' }}
+                      >
+                        Award to this Claimant
+                      </button>
+                    </div>
+
+                    <div style={{ backgroundColor: 'var(--bg-color)', padding: '12px', borderRadius: '4px', border: '1px solid var(--border)' }}>
+                      <div style={{ fontSize: '0.72rem', fontWeight: 650, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '4px' }}>
+                        CLAIMANT EVIDENCE STATEMENT
+                      </div>
+                      <div style={{ fontSize: '0.88rem', color: 'var(--text-main)' }}>
+                        "{disputeClaim.claimEvidence || disputeClaim.claim_evidence}"
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* SECTION 4: MEMBERSHIPS & STAFF ALLOWLIST */}
+      {activeSection === 'memberships' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+          
+          {/* Staff Allowlist Block */}
+          <div className="card" style={{ padding: '24px', backgroundColor: '#FFFFFF', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <div>
+                <h3 style={{ fontSize: '1.1rem', fontWeight: 650, margin: '0 0 4px 0', color: 'var(--text-main)' }}>
+                  Pre-Approved Staff & Desk Operator Allowlist
+                </h3>
+                <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', margin: 0 }}>
+                  Faculty, department advisors, and campus security desk operators pre-approved for university registration.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowAddStaffModal(true)}
+                className="btn btn-primary"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', padding: '6px 14px' }}
+              >
+                <Plus size={15} /> Pre-Approve Staff
+              </button>
+            </div>
+
+            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.86rem' }}>
+              <thead>
+                <tr style={{ backgroundColor: 'var(--bg-color)', borderBottom: '1px solid var(--border)', color: 'var(--text-muted)', fontSize: '0.74rem', textTransform: 'uppercase' }}>
+                  <th style={{ padding: '10px 14px' }}>Name</th>
+                  <th style={{ padding: '10px 14px' }}>Email</th>
+                  <th style={{ padding: '10px 14px' }}>Department</th>
+                  <th style={{ padding: '10px 14px' }}>Role</th>
+                  <th style={{ padding: '10px 14px' }}>Status</th>
+                  <th style={{ padding: '10px 14px', textAlign: 'right' }}>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {staffAllowlist.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                      No staff allowlist entries configured yet.
+                    </td>
+                  </tr>
+                ) : (
+                  staffAllowlist.map(entry => {
+                    const isStaffActive = entry.isActive ?? entry.is_active ?? true;
+                    return (
+                      <tr key={entry.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td style={{ padding: '10px 14px', fontWeight: 600 }}>{entry.name}</td>
+                        <td style={{ padding: '10px 14px', color: 'var(--text-secondary)' }}>{entry.email}</td>
+                        <td style={{ padding: '10px 14px', color: 'var(--text-secondary)' }}>{entry.department}</td>
+                        <td style={{ padding: '10px 14px' }}>
+                          <span style={{ fontSize: '0.74rem', fontWeight: 650, padding: '2px 6px', borderRadius: '4px', backgroundColor: entry.role === 'desk_operator' ? 'var(--primary-light)' : 'var(--bg-color)', color: entry.role === 'desk_operator' ? 'var(--primary)' : 'var(--text-main)' }}>
+                            {entry.role}
+                          </span>
+                        </td>
+                        <td style={{ padding: '10px 14px' }}>
+                          <span style={{ color: isStaffActive ? 'var(--success)' : 'var(--danger)', fontWeight: 600, fontSize: '0.78rem' }}>
+                            {isStaffActive ? 'ACTIVE' : 'INACTIVE'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '10px 14px', textAlign: 'right' }}>
+                          <button
+                            onClick={() => handleToggleStaffStatus(entry.id, isStaffActive)}
+                            className="btn btn-secondary"
+                            style={{ padding: '3px 8px', fontSize: '0.74rem' }}
+                          >
+                            {isStaffActive ? 'Deactivate' : 'Reactivate'}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Memberships Table */}
+          <div className="card" style={{ padding: '24px', backgroundColor: '#FFFFFF', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
+            <h3 style={{ fontSize: '1.1rem', fontWeight: 650, margin: '0 0 4px 0', color: 'var(--text-main)' }}>
+              Server-Controlled Campus Memberships
+            </h3>
+            <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', margin: '0 0 16px 0' }}>
+              Database RLS verifies active membership on every report write and claim submission.
+            </p>
+
+            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.86rem' }}>
+              <thead>
+                <tr style={{ backgroundColor: 'var(--bg-color)', borderBottom: '1px solid var(--border)', color: 'var(--text-muted)', fontSize: '0.74rem', textTransform: 'uppercase' }}>
+                  <th style={{ padding: '10px 14px' }}>User ID</th>
+                  <th style={{ padding: '10px 14px' }}>Type</th>
+                  <th style={{ padding: '10px 14px' }}>Status</th>
+                  <th style={{ padding: '10px 14px' }}>Approved At</th>
+                  <th style={{ padding: '10px 14px', textAlign: 'right' }}>Authorization Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {memberships.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                      No active memberships recorded.
+                    </td>
+                  </tr>
+                ) : (
+                  memberships.map(mem => {
+                    const memUserId = mem.userId || mem.user_id || '';
+                    const memType = mem.membershipType || mem.membership_type || 'student';
+                    return (
+                      <tr key={mem.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td style={{ padding: '10px 14px', fontFamily: 'var(--font-mono)', fontSize: '0.78rem' }}>
+                          {memUserId.slice(0, 16)}...
+                        </td>
+                        <td style={{ padding: '10px 14px', fontWeight: 600 }}>
+                          {memType.toUpperCase()}
+                        </td>
+                        <td style={{ padding: '10px 14px' }}>
+                          <span style={{
+                            padding: '2px 6px',
+                            borderRadius: '4px',
+                            fontSize: '0.72rem',
+                            fontWeight: 700,
+                            backgroundColor: mem.status === 'ACTIVE' ? 'var(--success-light)' : 'var(--danger-light)',
+                            color: mem.status === 'ACTIVE' ? 'var(--success)' : 'var(--danger)'
+                          }}>
+                            {mem.status}
+                          </span>
+                        </td>
+                        <td style={{ padding: '10px 14px', color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
+                          {formatDateTime(mem.approvedAt || mem.approved_at || mem.createdAt || mem.created_at)}
+                        </td>
+                        <td style={{ padding: '10px 14px', textAlign: 'right' }}>
+                          <button
+                            onClick={() => handleToggleMembershipStatus(memUserId, mem.status)}
+                            className="btn btn-secondary"
+                            style={{ padding: '3px 8px', fontSize: '0.74rem', color: mem.status === 'ACTIVE' ? 'var(--danger)' : 'var(--success)' }}
+                          >
+                            {mem.status === 'ACTIVE' ? 'Suspend Account' : 'Reactivate'}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* SECTION 5: AUDIT LOGS */}
+      {activeSection === 'audit' && (
+        <div className="card" style={{ backgroundColor: '#FFFFFF', borderRadius: 'var(--radius)', border: '1px solid var(--border)', overflow: 'hidden' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.86rem' }}>
+            <thead>
+              <tr style={{ backgroundColor: 'var(--bg-color)', borderBottom: '1px solid var(--border)', color: 'var(--text-muted)', fontSize: '0.74rem', textTransform: 'uppercase' }}>
+                <th style={{ padding: '10px 14px' }}>Timestamp</th>
+                <th style={{ padding: '10px 14px' }}>Action</th>
+                <th style={{ padding: '10px 14px' }}>Target ID</th>
+                <th style={{ padding: '10px 14px' }}>Details</th>
+              </tr>
+            </thead>
+            <tbody>
+              {auditLogs.length === 0 ? (
+                <tr>
+                  <td colSpan={4} style={{ padding: '36px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                    No audit records logged yet.
+                  </td>
+                </tr>
+              ) : (
+                auditLogs.map(log => (
+                  <tr key={log.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                    <td style={{ padding: '10px 14px', color: 'var(--text-secondary)', fontSize: '0.78rem', whiteSpace: 'nowrap' }}>
+                      {formatDateTime(log.created_at)}
+                    </td>
+                    <td style={{ padding: '10px 14px', fontWeight: 650, fontFamily: 'var(--font-mono)', fontSize: '0.78rem' }}>
+                      {log.action}
+                    </td>
+                    <td style={{ padding: '10px 14px', fontFamily: 'var(--font-mono)', fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+                      {log.target_id ? log.target_id.slice(0, 12) + '...' : '—'}
+                    </td>
+                    <td style={{ padding: '10px 14px', color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
+                      {log.details ? JSON.stringify(log.details) : '—'}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* RESOLUTION & HANDOVER MODAL */}
+      {resolvingClaim && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0, 0, 0, 0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '16px' }}>
+          <div className="card" style={{ width: '100%', maxWidth: '500px', backgroundColor: '#FFFFFF', borderRadius: 'var(--radius)', padding: '24px', border: '1px solid var(--border)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <h3 style={{ fontSize: '1.15rem', fontWeight: 650, margin: 0 }}>Authorize Physical Handover</h3>
+              <button onClick={() => setResolvingClaim(null)} className="btn btn-ghost" style={{ padding: '4px' }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <p style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+              This action marks the item as <strong>RESOLVED</strong>, confirms physical helpdesk custody, and rejects competing claims.
+            </p>
+
+            <div style={{ backgroundColor: 'var(--bg-color)', padding: '12px', borderRadius: '4px', border: '1px solid var(--border)', marginBottom: '16px' }}>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 650, textTransform: 'uppercase', marginBottom: '2px' }}>
+                CLAIM EVIDENCE
+              </div>
+              <div style={{ fontSize: '0.86rem', color: 'var(--text-main)' }}>
+                "{resolvingClaim.claimEvidence || resolvingClaim.claim_evidence}"
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '14px' }}>
+              <label className="form-label" style={{ fontSize: '0.82rem', fontWeight: 600 }}>Desk Condition Notes</label>
+              <input
+                type="text"
+                className="form-control"
+                value={conditionNotes}
+                onChange={(e) => setConditionNotes(e.target.value)}
+                style={{ fontSize: '0.86rem' }}
+              />
+            </div>
+
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', cursor: 'pointer', marginBottom: '18px', fontSize: '0.84rem', color: 'var(--text-main)' }}>
+              <input
+                type="checkbox"
+                checked={idVerified}
+                onChange={(e) => setIdVerified(e.target.checked)}
+                style={{ marginTop: '2px' }}
+              />
+              <span>
+                <strong>Physically verified student ID / PRN</strong> matching claimant record.
+              </span>
+            </label>
+
+            {resolutionError && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 12px', backgroundColor: 'var(--danger-light)', color: 'var(--danger)', borderRadius: '4px', fontSize: '0.82rem', marginBottom: '14px' }}>
+                <AlertCircle size={15} />
+                <span>{resolutionError}</span>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <button onClick={() => setResolvingClaim(null)} className="btn btn-secondary" disabled={resolutionLoading}>
+                Cancel
+              </button>
+              <button onClick={handleExecuteHandover} className="btn btn-primary" disabled={resolutionLoading}>
+                {resolutionLoading ? 'Executing Handover...' : 'Complete Handover'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ADD STAFF MODAL */}
+      {showAddStaffModal && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0, 0, 0, 0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '16px' }}>
+          <div className="card" style={{ width: '100%', maxWidth: '460px', backgroundColor: '#FFFFFF', borderRadius: 'var(--radius)', padding: '24px', border: '1px solid var(--border)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <h3 style={{ fontSize: '1.15rem', fontWeight: 650, margin: 0 }}>Pre-Approve Staff Member</h3>
+              <button onClick={() => setShowAddStaffModal(false)} className="btn btn-ghost" style={{ padding: '4px' }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddStaff}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '18px' }}>
+                <div>
+                  <label className="form-label" style={{ fontSize: '0.82rem', fontWeight: 600 }}>Staff Name *</label>
+                  <input
+                    type="text"
+                    required
+                    className="form-control"
+                    placeholder="e.g. Dr. Rajesh Sharma"
+                    value={newStaffName}
+                    onChange={(e) => setNewStaffName(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <label className="form-label" style={{ fontSize: '0.82rem', fontWeight: 600 }}>Official Email *</label>
+                  <input
+                    type="email"
+                    required
+                    className="form-control"
+                    placeholder="e.g. r.sharma@sguk.ac.in"
+                    value={newStaffEmail}
+                    onChange={(e) => setNewStaffEmail(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <label className="form-label" style={{ fontSize: '0.82rem', fontWeight: 600 }}>Department</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    placeholder="e.g. Computer Science & Eng."
+                    value={newStaffDept}
+                    onChange={(e) => setNewStaffDept(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <label className="form-label" style={{ fontSize: '0.82rem', fontWeight: 600 }}>Role *</label>
+                  <select
+                    className="form-control"
+                    value={newStaffRole}
+                    onChange={(e) => setNewStaffRole(e.target.value as 'staff' | 'desk_operator')}
+                  >
+                    <option value="staff">Staff / Faculty</option>
+                    <option value="desk_operator">Desk Operator (Campus Helpdesk)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                <button type="button" onClick={() => setShowAddStaffModal(false)} className="btn btn-secondary">
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary" disabled={addStaffLoading}>
+                  {addStaffLoading ? 'Adding...' : 'Pre-Approve'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* REPORT DETAILS ASIDE MODAL */}
       <AnimatePresence>
         {selectedReport && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.18 }}
-            style={{
-              position: 'fixed',
-              inset: 0,
-              backgroundColor: 'rgba(18, 19, 22, 0.42)',
-              backdropFilter: 'blur(6px)',
-              WebkitBackdropFilter: 'blur(6px)',
-              zIndex: 95,
-              display: 'flex',
-              justifyContent: 'flex-end'
-            }}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="admin-record-title"
+            style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0, 0, 0, 0.45)', zIndex: 1000, display: 'flex', justifyContent: 'flex-end' }}
             onClick={() => setSelectedId(null)}
           >
             <motion.aside
               initial={{ x: '100%' }}
               animate={{ x: 0 }}
               exit={{ x: '100%' }}
-              transition={{ type: 'spring', damping: 30, stiffness: 330 }}
-              className="admin-drawer"
-              onClick={event => event.stopPropagation()}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              style={{ width: '100%', maxWidth: '520px', height: '100%', backgroundColor: '#FFFFFF', padding: '28px', overflowY: 'auto', borderLeft: '1px solid var(--border)' }}
+              onClick={(e) => e.stopPropagation()}
             >
-              <div
-                style={{
-                  padding: '18px 20px',
-                  borderBottom: '1px solid var(--border)',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'flex-start',
-                  gap: '14px',
-                  position: 'sticky',
-                  top: 0,
-                  backgroundColor: 'rgba(255, 255, 255, 0.96)',
-                  backdropFilter: 'blur(16px)',
-                  zIndex: 2
-                }}
-              >
-                <div>
-                  <div className="docket-meta" style={{ marginBottom: '4px' }}>
-                    CAMPUS OVERSIGHT // REF #LL-{selectedReport.id.slice(0, 8).toUpperCase()}
-                  </div>
-                  <h2 id="admin-record-title" style={{ fontSize: '1.2rem', lineHeight: 1.25, letterSpacing: '-0.025em' }}>
-                    {selectedReport.title}
-                  </h2>
-                </div>
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  onClick={() => setSelectedId(null)}
-                  aria-label="Close administrative record"
-                  style={{ padding: '6px', flexShrink: 0 }}
-                >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: 700, padding: '2px 8px', borderRadius: '4px', backgroundColor: selectedReport.status === 'resolved' ? 'var(--bg-color)' : 'var(--primary-light)', color: selectedReport.status === 'resolved' ? 'var(--text-muted)' : 'var(--primary)' }}>
+                  {selectedReport.status.toUpperCase()} RECORD
+                </span>
+                <button onClick={() => setSelectedId(null)} className="btn btn-ghost" style={{ padding: '4px' }}>
                   <X size={18} />
                 </button>
               </div>
 
-              <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
-                <div
-                  style={{
-                    height: '220px',
-                    borderRadius: 'var(--radius-sm)',
-                    backgroundColor: getCategoryIllustration(selectedReport.category).bg,
-                    border: '1px solid var(--border)',
-                    overflow: 'hidden',
-                    position: 'relative',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center'
-                  }}
-                >
+              <h2 style={{ fontSize: '1.4rem', fontWeight: 650, color: 'var(--text-main)', margin: '0 0 16px 0' }}>
+                {selectedReport.title}
+              </h2>
+
+              {/* Image Preview */}
+              {(selectedReport.imagePath || selectedReport.imageUrl) && (
+                <div style={{ height: '200px', backgroundColor: 'var(--bg-color)', borderRadius: '6px', overflow: 'hidden', marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   {imageLoading ? (
-                    <Loader2 size={26} style={{ animation: 'spin 1s linear infinite', color: 'var(--primary)' }} />
+                    <Loader2 size={24} style={{ animation: 'spin 1s linear infinite', color: 'var(--primary)' }} />
                   ) : selectedImageUrl && !imageFailed ? (
-                    <img
-                      src={selectedImageUrl}
-                      alt={selectedReport.title}
-                      onError={() => setImageFailed(true)}
-                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                    />
+                    <img src={selectedImageUrl} alt={selectedReport.title} onError={() => setImageFailed(true)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   ) : (
-                    <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
-                      <ImageIcon size={28} style={{ marginBottom: '6px' }} />
-                      <div style={{ fontSize: '0.76rem', fontFamily: 'var(--font-mono)', letterSpacing: '0.04em' }}>
-                        {selectedReport.imagePath ? 'IMAGE UNAVAILABLE' : 'NO IMAGE ATTACHED'}
-                      </div>
-                    </div>
-                  )}
-                  {isSensitiveImagePath(selectedReport.imagePath) && (
-                    <span
-                      className="badge badge-lost"
-                      style={{ position: 'absolute', top: '10px', left: '10px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
-                    >
-                      <LockKeyhole size={11} />
-                      Sensitive image
-                    </span>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Image unavailable</span>
                   )}
                 </div>
+              )}
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                  {renderStatus(selectedReport)}
-                  <span className="mono-token mono-token-subtle">{selectedReport.category}</span>
-                  {selectedMatches.length > 0 && (
-                    <span className="mono-token mono-token-amber">
-                      {selectedMatches.length} MATCH{selectedMatches.length === 1 ? '' : 'ES'}
-                    </span>
-                  )}
-                </div>
-
-                <div className="admin-detail-grid">
-                  <div>
-                    <div className="admin-detail-label">REPORTED BY</div>
-                    <div className="admin-detail-value">
-                      <User size={14} />
-                      <span>{selectedReport.reporterName}</span>
-                    </div>
-                  </div>
-                  <div>
-                    <div className="admin-detail-label">FILED AT</div>
-                    <div className="admin-detail-value">
-                      <Clock3 size={14} />
-                      <span>{formatDateTime(selectedReport.createdAt)}</span>
-                    </div>
-                  </div>
-                  <div>
-                    <div className="admin-detail-label">INCIDENT DATE</div>
-                    <div className="admin-detail-value">
-                      <Calendar size={14} />
-                      <span>{formatDate(selectedReport.date)}{selectedReport.time ? ` · ${selectedReport.time}` : ''}</span>
-                    </div>
-                  </div>
-                  <div>
-                    <div className="admin-detail-label">LOCATION</div>
-                    <div className="admin-detail-value">
-                      <MapPin size={14} />
-                      <span>{selectedReport.location}</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <div className="admin-detail-label" style={{ marginBottom: '6px' }}>DESCRIPTION</div>
-                  <p style={{ fontSize: '0.9rem', lineHeight: 1.65, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '0.86rem', color: 'var(--text-main)' }}>
+                <div><strong>Category:</strong> {selectedReport.category}</div>
+                <div><strong>Location / Zone:</strong> {selectedReport.campusZone || selectedReport.location}</div>
+                <div><strong>Date:</strong> {formatDate(selectedReport.date)}</div>
+                <div><strong>Reporter:</strong> {selectedReport.reporterName}</div>
+                {selectedReport.brandModel && <div><strong>Brand / Model:</strong> {selectedReport.brandModel}</div>}
+                {selectedReport.color && <div><strong>Color:</strong> {selectedReport.color}</div>}
+                {selectedReport.distinguishingFeatures && <div><strong>Distinguishing Marks:</strong> {selectedReport.distinguishingFeatures}</div>}
+                {selectedReport.custodyStatus && <div><strong>Custody Status:</strong> {selectedReport.custodyStatus}</div>}
+                <div style={{ marginTop: '8px' }}>
+                  <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', fontWeight: 650, textTransform: 'uppercase', marginBottom: '4px' }}>Description</div>
+                  <div style={{ backgroundColor: 'var(--bg-color)', padding: '10px', borderRadius: '4px', border: '1px solid var(--border)', lineHeight: 1.5 }}>
                     {selectedReport.description}
-                  </p>
-                </div>
-
-                {selectedReport.hasPrivateVerification && (
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '9px',
-                      padding: '10px 12px',
-                      borderRadius: 'var(--radius-sm)',
-                      backgroundColor: 'var(--primary-light)',
-                      border: '1px solid var(--primary-border)',
-                      color: 'var(--primary)',
-                      fontSize: '0.82rem'
-                    }}
-                  >
-                    <LockKeyhole size={15} style={{ flexShrink: 0 }} />
-                    <span>Private ownership verification is configured. Secret answers are never exposed in this portal.</span>
                   </div>
-                )}
-
-                <div style={{ borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', marginBottom: '10px' }}>
-                    <div className="admin-detail-label" style={{ margin: 0 }}>MATCH CANDIDATES</div>
-                    <span className="docket-meta">LIVE + PERSISTED</span>
-                  </div>
-
-                  {selectedMatches.length === 0 ? (
-                    <div
-                      style={{
-                        padding: '14px',
-                        borderRadius: 'var(--radius-sm)',
-                        backgroundColor: 'var(--bg-secondary)',
-                        color: 'var(--text-muted)',
-                        fontSize: '0.82rem'
-                      }}
-                    >
-                      No match candidates are associated with this record.
-                    </div>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      {selectedMatches.map(match => {
-                        const counterpartId = match.lostReportId === selectedReport.id
-                          ? match.foundReportId
-                          : match.lostReportId;
-                        const counterpart = reportById.get(counterpartId);
-
-                        return (
-                          <button
-                            key={`${match.id}:${counterpartId}`}
-                            type="button"
-                            onClick={() => openRecord(counterpartId)}
-                            disabled={!counterpart}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '10px',
-                              width: '100%',
-                              padding: '10px 12px',
-                              borderRadius: 'var(--radius-sm)',
-                              border: '1px solid var(--border)',
-                              backgroundColor: '#FFFFFF',
-                              textAlign: 'left',
-                              cursor: counterpart ? 'pointer' : 'default'
-                            }}
-                          >
-                            <div
-                              style={{
-                                width: '36px',
-                                height: '36px',
-                                borderRadius: '9px',
-                                backgroundColor: match.status === 'verified' ? 'var(--success-light)' : 'var(--primary-light)',
-                                color: match.status === 'verified' ? 'var(--success)' : 'var(--primary)',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                flexShrink: 0
-                              }}
-                            >
-                              {match.status === 'verified' ? <CheckCircle2 size={18} /> : <Sparkles size={18} />}
-                            </div>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div
-                                style={{
-                                  fontSize: '0.84rem',
-                                  fontWeight: 650,
-                                  color: 'var(--text-main)',
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis',
-                                  whiteSpace: 'nowrap'
-                                }}
-                              >
-                                {counterpart?.title || 'Linked record unavailable'}
-                              </div>
-                              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                                {match.status.toUpperCase()} · {match.score.score}% confidence
-                              </div>
-                            </div>
-                            {counterpart && <ChevronRight size={15} style={{ color: 'var(--text-tertiary)', flexShrink: 0 }} />}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-
-                <div
-                  style={{
-                    paddingTop: '4px',
-                    color: 'var(--text-tertiary)',
-                    fontSize: '0.72rem',
-                    fontFamily: 'var(--font-mono)',
-                    letterSpacing: '0.03em',
-                    lineHeight: 1.55
-                  }}
-                >
-                  ADMINISTRATIVE VIEW IS READ-ONLY. DATABASE RLS ENFORCES RESOLVED-RECORD AND SENSITIVE-IMAGE ACCESS.
                 </div>
               </div>
             </motion.aside>

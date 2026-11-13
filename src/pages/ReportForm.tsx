@@ -1,26 +1,22 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import { useNavigate, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { useData } from '../store/DataContext';
-import type { Category } from '../types';
+import type { Category, CustodyStatus } from '../types';
 import { 
   CheckCircle, UploadCloud, ArrowLeft, AlertCircle, Loader2, 
-  Lock, Globe, MapPin, Tag, Calendar, ShieldCheck, Eye, EyeOff 
+  Lock, Globe, MapPin, Tag, Calendar, ShieldCheck 
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { validateImageFile, uploadReportImage, deleteReportImage, isSensitiveImagePath } from '../lib/storage';
-import { validatePin, validateClue, setReportVerification, getOwnerVerification } from '../lib/verification';
 import { CATEGORY_OPTIONS } from '../utils/categoryArt';
+import { SGUK_CAMPUS_ZONES } from '../utils/matching';
+import { supabase } from '../lib/supabase';
 
 const getDefaultDate = () => new Date().toISOString().split('T')[0];
 
-const CAMPUS_ZONES = [
-  'Main Library',
-  'Student Union',
-  'Science Building',
-  'Dining Hall',
-  'Sports Complex',
-  'Hostel Quad'
-];
+const countWords = (text: string): number => {
+  return text.trim() ? text.trim().split(/\s+/).length : 0;
+};
 
 export const ReportForm: React.FC = () => {
   const { addReport, updateReport, reports, user } = useData();
@@ -41,14 +37,18 @@ export const ReportForm: React.FC = () => {
   const [formData, setFormData] = useState(() => {
     if (existingReport) {
       return {
-        title: existingReport.title,
+        title: existingReport.title || '',
         category: existingReport.category,
-        description: existingReport.description,
-        location: existingReport.location,
+        description: existingReport.description || '',
+        location: existingReport.location || '',
         campusZone: existingReport.campusZone || '',
-        date: existingReport.date,
-        imageUrl: existingReport.imageUrl || '',
-        hasPrivateVerification: existingReport.hasPrivateVerification || false
+        date: existingReport.date || getDefaultDate(),
+        brandModel: existingReport.brandModel || '',
+        color: existingReport.color || '',
+        distinguishingFeatures: existingReport.distinguishingFeatures || '',
+        custodyStatus: (existingReport.custodyStatus || 'with_finder') as CustodyStatus,
+        privateEvidence: existingReport.privateEvidence || '',
+        imageUrl: existingReport.imageUrl || ''
       };
     }
     return {
@@ -58,35 +58,15 @@ export const ReportForm: React.FC = () => {
       location: '',
       campusZone: '',
       date: getDefaultDate(),
-      imageUrl: '',
-      hasPrivateVerification: false
+      brandModel: '',
+      color: '',
+      distinguishingFeatures: '',
+      custodyStatus: 'with_finder' as CustodyStatus,
+      privateEvidence: '',
+      imageUrl: ''
     };
   });
 
-  const [prevEditId, setPrevEditId] = useState(editId);
-  if (prevEditId !== editId) {
-    setPrevEditId(editId);
-    setFormData(existingReport ? {
-      title: existingReport.title,
-      category: existingReport.category,
-      description: existingReport.description,
-      location: existingReport.location,
-      campusZone: existingReport.campusZone || '',
-      date: existingReport.date,
-      imageUrl: existingReport.imageUrl || '',
-      hasPrivateVerification: existingReport.hasPrivateVerification || false
-    } : {
-      title: '',
-      category: 'Electronics' as Category,
-      description: '',
-      location: '',
-      campusZone: '',
-      date: getDefaultDate(),
-      imageUrl: '',
-      hasPrivateVerification: false
-    });
-  }
-  
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isSensitiveImage, setIsSensitiveImage] = useState(() => isSensitiveImagePath(existingReport?.imagePath));
   const [imageError, setImageError] = useState<string | null>(null);
@@ -96,30 +76,7 @@ export const ReportForm: React.FC = () => {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Private Ownership Verification State
-  const [ownershipClue, setOwnershipClue] = useState('');
-  const [ownershipPin, setOwnershipPin] = useState('');
-  const [showPin, setShowPin] = useState(false);
-  const [clueError, setClueError] = useState<string | null>(null);
-  const [pinError, setPinError] = useState<string | null>(null);
-  const [hasExistingVerification, setHasExistingVerification] = useState(false);
-
-  // Load existing verification clue when editing an owned report
-  useEffect(() => {
-    let isMounted = true;
-    if (isEdit && editId && isLost) {
-      getOwnerVerification(editId).then(res => {
-        if (!isMounted) return;
-        if (res.configured && res.clue) {
-          setOwnershipClue(res.clue);
-          setHasExistingVerification(true);
-        }
-      });
-    }
-    return () => {
-      isMounted = false;
-    };
-  }, [isEdit, editId, isLost]);
+  const wordCount = countWords(formData.description);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -135,7 +92,6 @@ export const ReportForm: React.FC = () => {
     }
 
     setSelectedFile(file);
-    // Create instant local blob URL for high-fidelity client preview
     const previewUrl = URL.createObjectURL(file);
     setFormData(prev => ({ ...prev, imageUrl: previewUrl }));
   };
@@ -152,13 +108,8 @@ export const ReportForm: React.FC = () => {
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    const { name, value, type } = e.target;
-    if (type === 'checkbox') {
-      const checked = (e.target as HTMLInputElement).checked;
-      setFormData(prev => ({ ...prev, [name]: checked }));
-    } else {
-      setFormData(prev => ({ ...prev, [name]: value }));
-    }
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
   };
 
   const handleSelectZone = (zone: string) => {
@@ -174,24 +125,31 @@ export const ReportForm: React.FC = () => {
     if (isSaving) return;
 
     setSubmitError(null);
-    setClueError(null);
-    setPinError(null);
 
-    // Validate ownership verification fields for lost items
-    if (isLost) {
-      const clueVal = validateClue(ownershipClue);
-      if (!clueVal.valid) {
-        setClueError(clueVal.error || 'Please provide a private ownership clue.');
-        return;
-      }
+    // Front-end validations conforming to server invariants
+    if (formData.title.trim().length < 5 || formData.title.trim().length > 70) {
+      setSubmitError('Title must be between 5 and 70 characters.');
+      return;
+    }
 
-      if (!isEdit || !hasExistingVerification || ownershipPin.trim() !== '') {
-        const pinVal = validatePin(ownershipPin);
-        if (!pinVal.valid) {
-          setPinError(pinVal.error || 'Please provide a 6-digit numeric PIN.');
-          return;
-        }
-      }
+    if (formData.description.trim().length === 0 || formData.description.trim().length > 700) {
+      setSubmitError('Description must be between 1 and 700 characters.');
+      return;
+    }
+
+    if (wordCount > 100) {
+      setSubmitError(`Description contains ${wordCount} words, exceeding the 100-word limit.`);
+      return;
+    }
+
+    if (formData.location.trim().length === 0 || formData.location.trim().length > 100) {
+      setSubmitError('Location must be between 1 and 100 characters.');
+      return;
+    }
+
+    if (formData.privateEvidence.trim().length > 300) {
+      setSubmitError('Private identifying details must not exceed 300 characters.');
+      return;
     }
 
     setIsSaving(true);
@@ -222,32 +180,30 @@ export const ReportForm: React.FC = () => {
         const finalImageUrl = newlyUploadedPath ? undefined : formData.imageUrl;
 
         const result = await updateReport(editId, {
-          title: formData.title,
+          title: formData.title.trim(),
           category: formData.category,
-          description: formData.description,
-          location: formData.location,
+          description: formData.description.trim(),
+          location: formData.location.trim(),
           campusZone: formData.campusZone || undefined,
           date: formData.date,
+          brandModel: formData.brandModel.trim() || undefined,
+          color: formData.color.trim() || undefined,
+          distinguishingFeatures: formData.distinguishingFeatures.trim() || undefined,
+          custodyStatus: !isLost ? formData.custodyStatus : 'with_finder',
+          privateEvidence: formData.privateEvidence.trim() || undefined,
           imagePath: finalImagePath,
           imageUrl: finalImageUrl,
-          hasPrivateVerification: isLost ? true : formData.hasPrivateVerification
+          hasPrivateVerification: Boolean(formData.privateEvidence.trim())
         });
 
         if (result.success) {
-          if (isLost) {
-            setUploadStatus('Updating private verification details...');
-            const verifResult = await setReportVerification(
-              editId,
-              ownershipClue,
-              ownershipPin.trim() !== '' ? ownershipPin.trim() : undefined
-            );
-
-            if (!verifResult.success) {
-              setSubmitError(verifResult.error || 'Failed to update private verification details.');
-              setIsSaving(false);
-              setUploadStatus(null);
-              return;
-            }
+          // If private evidence was provided, update report_private_details
+          if (supabase && formData.privateEvidence.trim()) {
+            await supabase.from('report_private_details').upsert({
+              report_id: editId,
+              owner_id: user.id,
+              private_detail: formData.privateEvidence.trim()
+            });
           }
 
           if (
@@ -260,7 +216,7 @@ export const ReportForm: React.FC = () => {
           setSubmitted(true);
           setTimeout(() => {
             navigate('/my-reports');
-          }, 1500);
+          }, 1200);
         } else {
           if (newlyUploadedPath) {
             await deleteReportImage(newlyUploadedPath).catch(() => {});
@@ -270,48 +226,78 @@ export const ReportForm: React.FC = () => {
         return;
       }
 
-      // 3. Create new report
+      // 3. Create new report via secure stored procedure
       setUploadStatus('Submitting report...');
-      const result = await addReport({
-        type: isLost ? 'lost' : 'found',
-        title: formData.title,
-        category: formData.category,
-        description: formData.description,
-        location: formData.location,
-        campusZone: formData.campusZone || undefined,
-        date: formData.date,
-        imagePath: newlyUploadedPath || undefined,
-        imageUrl: newlyUploadedPath ? undefined : formData.imageUrl,
-        hasPrivateVerification: isLost ? true : formData.hasPrivateVerification
-      });
+      
+      let usedRpc = false;
 
-      if (result.success) {
-        if (isLost && result.id) {
-          setUploadStatus('Securing private verification details...');
-          const verifResult = await setReportVerification(
-            result.id,
-            ownershipClue,
-            ownershipPin.trim()
-          );
+      // Attempt stored procedure first if supabase is available
+      if (supabase) {
+        const { data: rpcData, error: rpcError } = await supabase.rpc('create_report_secure', {
+          p_type: isLost ? 'lost' : 'found',
+          p_title: formData.title.trim(),
+          p_category: formData.category,
+          p_description: formData.description.trim(),
+          p_location: formData.location.trim(),
+          p_date: formData.date,
+          p_brand_model: formData.brandModel.trim() || null,
+          p_color: formData.color.trim() || null,
+          p_distinguishing_features: formData.distinguishingFeatures.trim() || null,
+          p_campus_zone: formData.campusZone || null,
+          p_custody_status: !isLost ? formData.custodyStatus : 'with_finder',
+          p_image_path: newlyUploadedPath || null,
+          p_private_evidence: formData.privateEvidence.trim() || null
+        });
 
-          if (!verifResult.success) {
-            setSubmitError(verifResult.error || 'Report created, but failed to secure private verification details.');
-            setIsSaving(false);
-            setUploadStatus(null);
-            return;
+        if (!rpcError && rpcData) {
+          usedRpc = true;
+        } else if (rpcError && rpcError.message && !rpcError.message.includes('function') && !rpcError.message.includes('does not exist')) {
+          // Real validation or rate limit error returned by server
+          if (newlyUploadedPath) {
+            await deleteReportImage(newlyUploadedPath).catch(() => {});
           }
+          setSubmitError(rpcError.message);
+          setIsSaving(false);
+          setUploadStatus(null);
+          return;
         }
-
-        setSubmitted(true);
-        setTimeout(() => {
-          navigate('/my-reports');
-        }, 1800);
-      } else {
-        if (newlyUploadedPath) {
-          await deleteReportImage(newlyUploadedPath).catch(() => {});
-        }
-        setSubmitError(result.error || 'Failed to submit report. Please try again.');
       }
+
+      // Fallback to client DataContext addReport if RPC is not present in local test harness
+      if (!usedRpc) {
+        const result = await addReport({
+          type: isLost ? 'lost' : 'found',
+          title: formData.title.trim(),
+          category: formData.category,
+          description: formData.description.trim(),
+          location: formData.location.trim(),
+          campusZone: formData.campusZone || undefined,
+          date: formData.date,
+          brandModel: formData.brandModel.trim() || undefined,
+          color: formData.color.trim() || undefined,
+          distinguishingFeatures: formData.distinguishingFeatures.trim() || undefined,
+          custodyStatus: !isLost ? formData.custodyStatus : 'with_finder',
+          privateEvidence: formData.privateEvidence.trim() || undefined,
+          imagePath: newlyUploadedPath || undefined,
+          imageUrl: newlyUploadedPath ? undefined : formData.imageUrl,
+          hasPrivateVerification: Boolean(formData.privateEvidence.trim())
+        });
+
+        if (!result.success) {
+          if (newlyUploadedPath) {
+            await deleteReportImage(newlyUploadedPath).catch(() => {});
+          }
+          setSubmitError(result.error || 'Failed to submit report. Please try again.');
+          setIsSaving(false);
+          setUploadStatus(null);
+          return;
+        }
+      }
+
+      setSubmitted(true);
+      setTimeout(() => {
+        navigate('/my-reports');
+      }, 1500);
     } catch (err) {
       if (newlyUploadedPath) {
         await deleteReportImage(newlyUploadedPath).catch(() => {});
@@ -325,14 +311,14 @@ export const ReportForm: React.FC = () => {
 
   if (isEdit && !existingReport) {
     return (
-      <div style={{ maxWidth: '750px', margin: '0 auto', paddingBottom: '40px' }}>
-        <button className="btn btn-ghost" onClick={() => navigate('/my-reports')} style={{ marginBottom: '16px' }}>
-          <ArrowLeft size={18} /> Back to My Reports
+      <div style={{ maxWidth: '720px', margin: '0 auto', padding: '32px 16px' }}>
+        <button className="btn btn-secondary" onClick={() => navigate('/my-reports')} style={{ marginBottom: '16px' }}>
+          <ArrowLeft size={16} /> Back to My Reports
         </button>
-        <div className="card" style={{ padding: '64px 24px', textAlign: 'center' }}>
-          <AlertCircle size={40} color="var(--danger)" style={{ margin: '0 auto 16px' }} />
-          <h2 style={{ fontSize: '1.5rem', marginBottom: '8px' }}>Report Not Found</h2>
-          <p style={{ color: 'var(--text-muted)', margin: '8px 0 24px' }}>
+        <div className="card" style={{ padding: '48px 24px', textAlign: 'center' }}>
+          <AlertCircle size={36} color="var(--danger)" style={{ margin: '0 auto 12px' }} />
+          <h2 style={{ fontSize: '1.25rem', marginBottom: '8px' }}>Report Not Found</h2>
+          <p style={{ color: 'var(--text-muted)', margin: '8px 0 20px', fontSize: '0.9rem' }}>
             The report you are trying to edit does not exist or may have been deleted.
           </p>
           <button className="btn btn-primary" onClick={() => navigate('/my-reports')}>
@@ -345,14 +331,14 @@ export const ReportForm: React.FC = () => {
 
   if (isUnauthorized) {
     return (
-      <div style={{ maxWidth: '750px', margin: '0 auto', paddingBottom: '40px' }}>
-        <button className="btn btn-ghost" onClick={() => navigate('/my-reports')} style={{ marginBottom: '16px' }}>
-          <ArrowLeft size={18} /> Back to My Reports
+      <div style={{ maxWidth: '720px', margin: '0 auto', padding: '32px 16px' }}>
+        <button className="btn btn-secondary" onClick={() => navigate('/my-reports')} style={{ marginBottom: '16px' }}>
+          <ArrowLeft size={16} /> Back to My Reports
         </button>
-        <div className="card" style={{ padding: '64px 24px', textAlign: 'center' }}>
-          <AlertCircle size={40} color="var(--danger)" style={{ margin: '0 auto 16px' }} />
-          <h2 style={{ fontSize: '1.5rem', marginBottom: '8px' }}>Permission Denied</h2>
-          <p style={{ color: 'var(--text-muted)', margin: '8px 0 24px' }}>
+        <div className="card" style={{ padding: '48px 24px', textAlign: 'center' }}>
+          <AlertCircle size={36} color="var(--danger)" style={{ margin: '0 auto 12px' }} />
+          <h2 style={{ fontSize: '1.25rem', marginBottom: '8px' }}>Permission Denied</h2>
+          <p style={{ color: 'var(--text-muted)', margin: '8px 0 20px', fontSize: '0.9rem' }}>
             You can only edit reports that were submitted by your account.
           </p>
           <button className="btn btn-primary" onClick={() => navigate('/my-reports')}>
@@ -366,20 +352,20 @@ export const ReportForm: React.FC = () => {
   if (submitted) {
     return (
       <motion.div 
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '64px 20px', minHeight: '60vh', textAlign: 'center' }}
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '64px 20px', minHeight: '50vh', textAlign: 'center' }}
       >
-        <div style={{ width: '88px', height: '88px', borderRadius: '50%', backgroundColor: 'var(--success-light)', color: 'var(--success)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '24px' }}>
-          <CheckCircle size={48} />
+        <div style={{ width: '64px', height: '64px', borderRadius: '50%', backgroundColor: 'var(--success-light)', color: 'var(--success)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '20px' }}>
+          <CheckCircle size={36} />
         </div>
-        <h2 style={{ fontSize: '1.75rem', marginBottom: '10px' }}>
-          {isEdit ? 'Report Updated Successfully' : 'Report Published to Campus'}
+        <h2 style={{ fontSize: '1.5rem', marginBottom: '8px', color: 'var(--text-main)' }}>
+          {isEdit ? 'Report Updated Successfully' : 'Report Logged in Campus Registry'}
         </h2>
-        <p style={{ color: 'var(--text-muted)', marginBottom: '28px', maxWidth: '440px', fontSize: '1.05rem', lineHeight: 1.6 }}>
+        <p style={{ color: 'var(--text-muted)', marginBottom: '24px', maxWidth: '440px', fontSize: '0.95rem', lineHeight: 1.5 }}>
           {isEdit 
-            ? 'Your changes have been saved.' 
-            : `Your ${isLost ? 'lost' : 'found'} report is now live. We will automatically cross-reference it against campus records.`}
+            ? 'Your modifications have been committed to the campus records.' 
+            : `Your ${isLost ? 'lost' : 'found'} report is recorded. Algorithmic matching will evaluate candidate items.`}
         </p>
 
         <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', justifyContent: 'center' }}>
@@ -387,7 +373,7 @@ export const ReportForm: React.FC = () => {
             type="button" 
             className="btn btn-primary" 
             onClick={() => navigate('/my-reports')}
-            style={{ padding: '10px 20px' }}
+            style={{ padding: '9px 18px', fontSize: '0.9rem' }}
           >
             View in My Reports
           </button>
@@ -395,7 +381,7 @@ export const ReportForm: React.FC = () => {
             type="button" 
             className="btn btn-secondary" 
             onClick={() => navigate('/browse')}
-            style={{ padding: '10px 20px' }}
+            style={{ padding: '9px 18px', fontSize: '0.9rem' }}
           >
             Browse Campus Items
           </button>
@@ -405,111 +391,172 @@ export const ReportForm: React.FC = () => {
   }
 
   return (
-    <div style={{ maxWidth: '820px', margin: '0 auto', paddingBottom: '56px' }}>
+    <div style={{ maxWidth: '780px', margin: '0 auto', paddingBottom: '48px' }}>
       <button 
         type="button" 
         className="btn btn-secondary" 
         onClick={() => navigate(-1)} 
-        style={{ marginBottom: '20px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', padding: '7px 14px' }}
+        style={{ marginBottom: '20px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem' }}
       >
         <ArrowLeft size={16} /> Return to Previous View
       </button>
 
-      {/* Editorial Header */}
-      <div style={{ marginBottom: '28px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-          <span className="mono-token mono-token-amber">
-            {isEdit ? 'DOCKET REVISION' : (isLost ? 'INCIDENT INTAKE // LOST' : 'CUSTODY REGISTRATION // FOUND')}
+      {/* Header */}
+      <div style={{ marginBottom: '24px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+          <span className="mono-token" style={{ fontSize: '0.75rem', padding: '2px 8px', borderRadius: '4px', backgroundColor: 'var(--primary-light)', color: 'var(--primary)', fontWeight: 600 }}>
+            {isEdit ? 'AMEND REPORT' : (isLost ? 'REPORT LOST ITEM' : 'REPORT FOUND ITEM')}
           </span>
-          <span className="mono-token mono-token-subtle">CAMPUS ARCHIVE</span>
+          <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>SANJAY GHODAWAT UNIVERSITY</span>
         </div>
-        <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '2.5rem', fontWeight: 600, color: 'var(--text-main)', letterSpacing: '-0.025em', margin: 0, lineHeight: 1.15 }}>
-          {isEdit ? 'Amend Incident Docket' : (isLost ? 'File Lost Possession Inquiry' : 'Log Recovered Campus Specimen')}
+        <h1 style={{ fontSize: '1.75rem', fontWeight: 600, color: 'var(--text-main)', margin: '0 0 6px 0', letterSpacing: '-0.01em' }}>
+          {isEdit ? 'Update Campus Incident' : (isLost ? 'Report a Lost Item' : 'Register a Found Item')}
         </h1>
-        <p style={{ color: 'var(--text-muted)', fontSize: '0.98rem', marginTop: '6px', maxWidth: '640px', lineHeight: 1.5 }}>
-          {isEdit 
-            ? 'Update the recorded metadata, location sector, or specimen photograph in the campus registry.'
-            : (isLost 
-                ? 'Provide exact specifications to assist fellow campus members and algorithmic matching in locating your item.' 
-                : 'Thank you for acting in the campus community interest. Catalog details accurately so legitimate owners can verify.')}
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.92rem', margin: 0, lineHeight: 1.5 }}>
+          {isLost 
+            ? 'Provide descriptive attributes and campus location to assist recovery. Matching suggestions will evaluate automatically.' 
+            : 'Thank you for reporting found property. Provide clear observations so genuine owners can verify.'}
         </p>
       </div>
 
-      <div className="card report-form-card" style={{ 
-        padding: '36px',
-        backgroundColor: '#FFFFFF',
-        borderRadius: 'var(--radius)',
-        border: '1px solid var(--border)',
-        boxShadow: 'var(--shadow-sm)'
-      }}>
+      <div className="card" style={{ padding: '32px', backgroundColor: '#FFFFFF', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
         <form onSubmit={handleSubmit}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '26px' }}>
-            {/* Title */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
+            
+            {/* Title (5-70 chars) with live counter */}
             <div>
-              <label className="form-label" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                SPECIMEN IDENTIFIER / TITLE *
-              </label>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                <label className="form-label" style={{ fontWeight: 600, fontSize: '0.88rem', margin: 0 }}>
+                  Item Title *
+                </label>
+                <span style={{ 
+                  fontSize: '0.75rem', 
+                  fontFamily: 'var(--font-mono)', 
+                  color: formData.title.length < 5 || formData.title.length > 70 ? 'var(--danger)' : 'var(--text-muted)' 
+                }}>
+                  {formData.title.length} / 70 chars (min 5)
+                </span>
+              </div>
               <input 
                 type="text" 
                 name="title"
                 required
+                maxLength={70}
                 className="form-control" 
-                placeholder="e.g. Midnight Blue Hydro Flask, Silver MacBook Air 13-inch"
+                placeholder="e.g. Navy Wildcraft Backpack, Space Gray MacBook Air"
                 value={formData.title}
                 onChange={handleChange}
               />
             </div>
 
-            {/* Category Selector Grid */}
+            {/* Category Grid */}
             <div>
-              <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontFamily: 'var(--font-mono)', fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                <Tag size={13} color="var(--text-muted)" />
-                <span>TAXONOMY CLASSIFICATION *</span>
+              <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '0.88rem' }}>
+                <Tag size={14} color="var(--primary)" />
+                <span>Category *</span>
               </label>
-              <div className="report-form-category-grid" style={{
+              <div style={{
                 display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
-                gap: '10px',
-                marginTop: '8px'
+                gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+                gap: '8px',
+                marginTop: '6px'
               }}>
                 {CATEGORY_OPTIONS.map(opt => {
                   const isSelected = formData.category === opt.value;
                   return (
-                    <div
+                    <button
+                      type="button"
                       key={opt.value}
                       onClick={() => setFormData(prev => ({ ...prev, category: opt.value }))}
                       style={{
-                        padding: '14px',
-                        borderRadius: '8px',
-                        border: `1.5px solid ${isSelected ? 'var(--text-main)' : 'var(--border)'}`,
-                        backgroundColor: isSelected ? 'var(--bg-canvas)' : '#FFFFFF',
+                        padding: '10px 12px',
+                        borderRadius: '6px',
+                        border: `1.5px solid ${isSelected ? 'var(--primary)' : 'var(--border)'}`,
+                        backgroundColor: isSelected ? 'var(--primary-light)' : '#FFFFFF',
                         cursor: 'pointer',
-                        transition: 'all 0.15s ease',
+                        textAlign: 'left',
                         display: 'flex',
-                        flexDirection: 'column',
-                        gap: '4px'
+                        alignItems: 'center',
+                        gap: '8px'
                       }}
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontSize: '1.25rem' }}>{opt.emoji}</span>
-                        <span style={{ fontSize: '0.88rem', fontWeight: isSelected ? 700 : 600, color: 'var(--text-main)' }}>
-                          {opt.value}
-                        </span>
-                      </div>
-                      <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: 1.3 }}>
-                        {opt.hint}
+                      <span style={{ fontSize: '1.1rem' }}>{opt.emoji}</span>
+                      <span style={{ fontSize: '0.85rem', fontWeight: isSelected ? 650 : 500, color: isSelected ? 'var(--primary)' : 'var(--text-main)' }}>
+                        {opt.value}
                       </span>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
             </div>
 
-            {/* Date & Campus Zone Grid */}
-            <div className="report-form-grid-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px' }}>
+            {/* Structured Item Attributes (Brand/Model, Color, Distinguishing Features) */}
+            <div style={{ 
+              display: 'grid', 
+              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
+              gap: '16px',
+              padding: '16px',
+              backgroundColor: 'var(--bg-color)',
+              borderRadius: 'var(--radius-sm)',
+              border: '1px solid var(--border)'
+            }}>
               <div>
-                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Calendar size={15} color="var(--primary)" />
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                  <label className="form-label" style={{ fontSize: '0.82rem', margin: 0 }}>Brand / Model</label>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{formData.brandModel.length}/100</span>
+                </div>
+                <input 
+                  type="text" 
+                  name="brandModel"
+                  maxLength={100}
+                  className="form-control" 
+                  placeholder="e.g. Apple iPhone 13, Wildcraft"
+                  value={formData.brandModel}
+                  onChange={handleChange}
+                  style={{ backgroundColor: '#FFFFFF', fontSize: '0.88rem' }}
+                />
+              </div>
+
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                  <label className="form-label" style={{ fontSize: '0.82rem', margin: 0 }}>Primary Color</label>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{formData.color.length}/50</span>
+                </div>
+                <input 
+                  type="text" 
+                  name="color"
+                  maxLength={50}
+                  className="form-control" 
+                  placeholder="e.g. Space Gray, Navy Blue"
+                  value={formData.color}
+                  onChange={handleChange}
+                  style={{ backgroundColor: '#FFFFFF', fontSize: '0.88rem' }}
+                />
+              </div>
+
+              <div style={{ gridColumn: '1 / -1' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                  <label className="form-label" style={{ fontSize: '0.82rem', margin: 0 }}>Distinguishing Features (Public)</label>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{formData.distinguishingFeatures.length}/200</span>
+                </div>
+                <input 
+                  type="text" 
+                  name="distinguishingFeatures"
+                  maxLength={200}
+                  className="form-control" 
+                  placeholder="e.g. Small scratch near charger port, national park badge on strap"
+                  value={formData.distinguishingFeatures}
+                  onChange={handleChange}
+                  style={{ backgroundColor: '#FFFFFF', fontSize: '0.88rem' }}
+                />
+              </div>
+            </div>
+
+            {/* Date & Campus Zone Grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
+              <div>
+                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '0.88rem' }}>
+                  <Calendar size={14} color="var(--primary)" />
                   <span>Date {isLost ? 'Lost' : 'Found'} *</span>
                 </label>
                 <input 
@@ -523,274 +570,227 @@ export const ReportForm: React.FC = () => {
               </div>
 
               <div>
-                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <MapPin size={15} color="var(--primary)" />
-                  <span>Campus Zone Quick-Pick</span>
+                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '0.88rem' }}>
+                  <MapPin size={14} color="var(--primary)" />
+                  <span>Campus Zone *</span>
                 </label>
-                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                  {CAMPUS_ZONES.map(zone => (
-                    <button
-                      key={zone}
-                      type="button"
-                      onClick={() => handleSelectZone(zone)}
-                      style={{
-                        padding: '5px 10px',
-                        borderRadius: '999px',
-                        fontSize: '0.75rem',
-                        fontWeight: 600,
-                        backgroundColor: formData.campusZone === zone ? 'var(--primary)' : 'var(--bg-color)',
-                        color: formData.campusZone === zone ? '#FFFFFF' : 'var(--text-muted)',
-                        border: `1px solid ${formData.campusZone === zone ? 'var(--primary)' : 'var(--border)'}`,
-                        cursor: 'pointer',
-                        transition: 'var(--transition)'
-                      }}
-                    >
-                      {zone}
-                    </button>
+                <select
+                  name="campusZone"
+                  required
+                  className="form-control"
+                  value={formData.campusZone}
+                  onChange={handleChange}
+                >
+                  <option value="">Select SGUK Campus Zone...</option>
+                  {SGUK_CAMPUS_ZONES.map((zone: string) => (
+                    <option key={zone} value={zone}>{zone}</option>
                   ))}
-                </div>
+                </select>
               </div>
             </div>
 
-            {/* Location Details */}
+            {/* Quick-Pick Zone Badges */}
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '-10px' }}>
+              {SGUK_CAMPUS_ZONES.slice(0, 6).map((zone: string) => (
+                <button
+                  key={zone}
+                  type="button"
+                  onClick={() => handleSelectZone(zone)}
+                  style={{
+                    padding: '4px 8px',
+                    borderRadius: '4px',
+                    fontSize: '0.74rem',
+                    fontWeight: 500,
+                    backgroundColor: formData.campusZone === zone ? 'var(--primary)' : 'var(--bg-color)',
+                    color: formData.campusZone === zone ? '#FFFFFF' : 'var(--text-secondary)',
+                    border: `1px solid ${formData.campusZone === zone ? 'var(--primary)' : 'var(--border)'}`,
+                    cursor: 'pointer'
+                  }}
+                >
+                  {zone}
+                </button>
+              ))}
+            </div>
+
+            {/* Specific Location (max 100 chars) with live counter */}
             <div>
-              <label className="form-label">Specific Location *</label>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                <label className="form-label" style={{ fontWeight: 600, fontSize: '0.88rem', margin: 0 }}>
+                  Specific Location *
+                </label>
+                <span style={{ 
+                  fontSize: '0.75rem', 
+                  fontFamily: 'var(--font-mono)', 
+                  color: formData.location.length > 100 ? 'var(--danger)' : 'var(--text-muted)' 
+                }}>
+                  {formData.location.length} / 100 chars
+                </span>
+              </div>
               <input 
                 type="text" 
                 name="location"
                 required
+                maxLength={100}
                 className="form-control" 
-                placeholder="e.g. Main Library 2nd Floor Silent Room, Table near window"
+                placeholder="e.g. 2nd floor silent reading room, desk 14 near north window"
                 value={formData.location}
                 onChange={handleChange}
               />
             </div>
 
-            {/* Description */}
+            {/* Description (max 700 chars and max 100 words) with live counters */}
             <div>
-              <label className="form-label">Description *</label>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                <label className="form-label" style={{ fontWeight: 600, fontSize: '0.88rem', margin: 0 }}>
+                  Description *
+                </label>
+                <div style={{ display: 'flex', gap: '12px', fontSize: '0.75rem', fontFamily: 'var(--font-mono)' }}>
+                  <span style={{ color: wordCount > 100 ? 'var(--danger)' : 'var(--text-muted)' }}>
+                    {wordCount} / 100 words
+                  </span>
+                  <span style={{ color: formData.description.length > 700 ? 'var(--danger)' : 'var(--text-muted)' }}>
+                    {formData.description.length} / 700 chars
+                  </span>
+                </div>
+              </div>
               <textarea 
                 name="description"
                 required
-                rows={4}
+                maxLength={700}
+                rows={3}
                 className="form-control" 
-                placeholder="Include color, brand, stickers, scratches, case style, or other distinctive features..."
+                placeholder="Provide accurate visual details and context..."
                 value={formData.description}
                 onChange={handleChange}
               />
             </div>
 
-            {/* Private Ownership Verification Section (Lost Items) */}
-            {isLost && (
-              <div 
-                style={{
-                  padding: '24px',
-                  backgroundColor: 'rgba(248, 248, 246, 0.95)',
-                  border: '1.5px solid var(--border)',
-                  borderRadius: 'var(--radius)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '18px',
-                  boxShadow: '0 2px 8px rgba(0, 0, 0, 0.02)'
-                }}
-              >
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                    <ShieldCheck size={20} color="var(--primary)" />
-                    <h3 style={{ fontSize: '1.05rem', fontWeight: 700, margin: 0, color: 'var(--text-main)', letterSpacing: '-0.01em' }}>
-                      Private Ownership Verification
-                    </h3>
-                  </div>
-                  <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: 0, lineHeight: 1.5 }}>
-                    Keep these details private. They will not appear on your public report. You may need them to verify ownership if someone finds your item.
-                  </p>
-                </div>
-
-                {/* Private ownership clue */}
-                <div>
-                  <label className="form-label" htmlFor="ownershipClue" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span>Private Ownership Clue *</span>
-                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', fontFamily: 'var(--font-mono)' }}>
-                      CONFIDENTIAL // NOT PUBLIC
-                    </span>
-                  </label>
-                  <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '-4px', marginBottom: '8px', lineHeight: 1.4 }}>
-                    Provide a specific, non-public detail about the item that only a genuine owner would know (e.g. sticker under the case, unique lock screen wallpaper, specific keychain, or scratch pattern).
-                  </p>
-                  <textarea
-                    id="ownershipClue"
-                    name="ownershipClue"
-                    required
-                    rows={3}
-                    className="form-control"
-                    placeholder="e.g. Inside the small front zipper pocket is a blue pen with engraved initials 'A.K.', and the back of the laptop has a faded sticker of a coffee cup..."
-                    value={ownershipClue}
-                    onChange={(e) => {
-                      setOwnershipClue(e.target.value);
-                      if (clueError) setClueError(null);
-                    }}
-                  />
-                  {clueError && (
-                    <div style={{ color: 'var(--danger)', fontSize: '0.82rem', marginTop: '6px', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                      <AlertCircle size={14} /> <span>{clueError}</span>
-                    </div>
-                  )}
-                </div>
-
-                {/* Secret PIN */}
-                <div>
-                  <label className="form-label" htmlFor="ownershipPin" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span>Secret PIN {isEdit && hasExistingVerification ? '(Leave blank to retain current PIN)' : '*'}</span>
-                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                      6 NUMERIC DIGITS
-                    </span>
-                  </label>
-                  <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '-4px', marginBottom: '8px', lineHeight: 1.4 }}>
-                    Choose a 6-digit numeric PIN. If someone contacts you regarding this item, they will need to provide this PIN to verify legitimate ownership.
-                  </p>
-                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                    <input
-                      id="ownershipPin"
-                      name="ownershipPin"
-                      type={showPin ? 'text' : 'password'}
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      maxLength={6}
-                      required={!isEdit || !hasExistingVerification}
-                      className="form-control"
-                      placeholder={isEdit && hasExistingVerification ? '•••••• (Current PIN securely saved)' : 'e.g. 582194'}
-                      value={ownershipPin}
-                      onChange={(e) => {
-                        const numericOnly = e.target.value.replace(/\D/g, '').slice(0, 6);
-                        setOwnershipPin(numericOnly);
-                        if (pinError) setPinError(null);
-                      }}
-                      style={{ 
-                        paddingRight: '46px', 
-                        fontFamily: showPin ? 'inherit' : 'var(--font-mono)', 
-                        letterSpacing: showPin ? 'normal' : '0.2em',
-                        fontSize: showPin ? '0.95rem' : '1.1rem'
-                      }}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPin(!showPin)}
-                      aria-label={showPin ? 'Hide secret PIN' : 'Show secret PIN'}
-                      style={{
-                        position: 'absolute',
-                        right: '12px',
-                        background: 'none',
-                        border: 'none',
-                        color: 'var(--text-muted)',
-                        cursor: 'pointer',
-                        padding: '6px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        borderRadius: '4px'
-                      }}
-                    >
-                      {showPin ? <EyeOff size={18} /> : <Eye size={18} />}
-                    </button>
-                  </div>
-                  {pinError && (
-                    <div style={{ color: 'var(--danger)', fontSize: '0.82rem', marginTop: '6px', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                      <AlertCircle size={14} /> <span>{pinError}</span>
-                    </div>
-                  )}
-                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '6px' }}>
-                    🔒 Plaintext PIN is never stored. It is salted and hashed using standard bcrypt inside the database.
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Private Verification Option (Found items) */}
+            {/* For Found Items: Current Custody Status */}
             {!isLost && (
               <div style={{
-                padding: '16px 18px',
-                backgroundColor: 'rgba(29, 29, 31, 0.03)',
-                backdropFilter: 'var(--blur-subtle)',
-                WebkitBackdropFilter: 'var(--blur-subtle)',
+                padding: '16px',
+                backgroundColor: 'var(--bg-color)',
                 border: '1px solid var(--border)',
-                borderRadius: 'var(--radius-sm)',
-                boxShadow: 'var(--glass-specular-soft)',
-                display: 'flex',
-                alignItems: 'flex-start',
-                gap: '14px'
+                borderRadius: 'var(--radius-sm)'
               }}>
-                <input 
-                  type="checkbox"
-                  id="hasPrivateVerification"
-                  name="hasPrivateVerification"
-                  checked={formData.hasPrivateVerification}
-                  onChange={handleChange}
-                  style={{ width: '18px', height: '18px', marginTop: '3px', cursor: 'pointer', accentColor: 'var(--primary)' }}
-                />
-                <label htmlFor="hasPrivateVerification" style={{ cursor: 'pointer' }}>
-                  <div style={{ fontSize: '0.88rem', fontWeight: 650, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <ShieldCheck size={16} color="var(--primary)" /> Enable Ownership Verification Lock
-                  </div>
-                  <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '2px', lineHeight: 1.45 }}>
-                    Check this if the item has confidential features (such as serial numbers, lock screen photo, or unique engravings) that the owner must describe before handover.
-                  </div>
+                <label className="form-label" style={{ fontWeight: 600, fontSize: '0.88rem', marginBottom: '8px' }}>
+                  Where is the item currently? *
                 </label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.88rem' }}>
+                    <input 
+                      type="radio" 
+                      name="custodyStatus" 
+                      value="with_finder"
+                      checked={formData.custodyStatus === 'with_finder'}
+                      onChange={handleChange}
+                    />
+                    <span><strong>With me</strong> — I am physically holding this item until claimed</span>
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.88rem' }}>
+                    <input 
+                      type="radio" 
+                      name="custodyStatus" 
+                      value="handed_to_desk"
+                      checked={formData.custodyStatus === 'handed_to_desk'}
+                      onChange={handleChange}
+                    />
+                    <span><strong>Handed to campus helpdesk</strong> — I deposited it at a campus helpdesk</span>
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.88rem' }}>
+                    <input 
+                      type="radio" 
+                      name="custodyStatus" 
+                      value="only_observed"
+                      checked={formData.custodyStatus === 'only_observed'}
+                      onChange={handleChange}
+                    />
+                    <span><strong>Only observed</strong> — I saw it at the location and left it in place</span>
+                  </label>
+                </div>
               </div>
             )}
 
-            {/* Photo Upload Section */}
+            {/* Optional Private Identifying Details (Replacing confusing PIN) */}
+            <div style={{
+              padding: '18px',
+              backgroundColor: '#FFFFFF',
+              border: '1px solid var(--border)',
+              borderRadius: 'var(--radius-sm)'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '4px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <ShieldCheck size={16} color="var(--primary)" />
+                  <span style={{ fontWeight: 600, fontSize: '0.88rem', color: 'var(--text-main)' }}>
+                    Private Identifying Details (Optional)
+                  </span>
+                </div>
+                <span style={{ 
+                  fontSize: '0.74rem', 
+                  fontFamily: 'var(--font-mono)', 
+                  color: formData.privateEvidence.length > 300 ? 'var(--danger)' : 'var(--text-muted)' 
+                }}>
+                  {formData.privateEvidence.length} / 300 chars
+                </span>
+              </div>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0 0 8px 0', lineHeight: 1.4 }}>
+                Describe something only the genuine owner would know (e.g. lockscreen wallpaper, serial number, engraved initials). This detail will not appear publicly.
+              </p>
+              <textarea 
+                name="privateEvidence"
+                maxLength={300}
+                rows={2}
+                className="form-control" 
+                placeholder="e.g. Red lanyard attached inside, serial number ends in 891, or custom phone case photo..."
+                value={formData.privateEvidence}
+                onChange={handleChange}
+                style={{ fontSize: '0.86rem' }}
+              />
+            </div>
+
+            {/* Single Photo Upload (Optional, max 5 MB) */}
             <div>
-              <label className="form-label">Photo (Optional)</label>
+              <label className="form-label" style={{ fontWeight: 600, fontSize: '0.88rem' }}>
+                Photo (Optional)
+              </label>
               <div style={{ 
                 border: '1.5px dashed var(--border)', 
-                borderRadius: 'var(--radius)', 
-                padding: '28px 20px', 
+                borderRadius: 'var(--radius-sm)', 
+                padding: '20px', 
                 textAlign: 'center', 
-                backgroundColor: 'rgba(255, 255, 255, 0.65)', 
-                backdropFilter: 'var(--blur-subtle)',
-                WebkitBackdropFilter: 'var(--blur-subtle)',
-                boxShadow: 'var(--glass-specular-soft)',
-                transition: 'var(--transition)' 
+                backgroundColor: 'var(--bg-color)' 
               }}>
                 {formData.imageUrl ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
-                    <div style={{ width: '100%', maxWidth: '320px', height: '200px', borderRadius: 'var(--radius-sm)', overflow: 'hidden', boxShadow: 'var(--shadow-md)', border: '1px solid var(--border)' }}>
-                      <img src={formData.imageUrl} alt="Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+                    <div style={{ width: '100%', maxWidth: '280px', height: '170px', borderRadius: '4px', overflow: 'hidden', border: '1px solid var(--border)' }}>
+                      <img src={formData.imageUrl} alt="Item Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', justifyContent: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       {selectedFile ? (
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', padding: '4px 12px', backgroundColor: 'var(--primary-light)', color: 'var(--primary)', borderRadius: '999px', fontWeight: 600 }}>
-                          <Lock size={12} />
-                          Ready for private upload ({(selectedFile.size / (1024 * 1024)).toFixed(2)} MB)
-                        </span>
-                      ) : existingReport?.imagePath ? (
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', padding: '4px 12px', backgroundColor: 'var(--success-light)', color: 'var(--success)', borderRadius: '999px', fontWeight: 600 }}>
-                          <Lock size={12} />
-                          Saved in secure storage
+                        <span style={{ fontSize: '0.78rem', padding: '3px 10px', backgroundColor: 'var(--primary-light)', color: 'var(--primary)', borderRadius: '4px', fontWeight: 600 }}>
+                          <Lock size={12} style={{ display: 'inline', marginRight: '4px' }} />
+                          File ready ({(selectedFile.size / (1024 * 1024)).toFixed(2)} MB)
                         </span>
                       ) : (
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', padding: '4px 12px', backgroundColor: 'var(--primary-light)', color: 'var(--primary)', borderRadius: '999px', fontWeight: 600 }}>
-                          <Globe size={12} />
-                          External Image URL
+                        <span style={{ fontSize: '0.78rem', padding: '3px 10px', backgroundColor: 'var(--primary-light)', color: 'var(--primary)', borderRadius: '4px', fontWeight: 600 }}>
+                          <Globe size={12} style={{ display: 'inline', marginRight: '4px' }} />
+                          Current image
                         </span>
                       )}
+                      <button type="button" className="btn btn-secondary" onClick={handleRemoveImage} disabled={isSaving} style={{ padding: '4px 10px', fontSize: '0.8rem' }}>
+                        Remove
+                      </button>
                     </div>
-
-                    <button type="button" className="btn btn-secondary" onClick={handleRemoveImage} disabled={isSaving}>
-                      Remove Photo
-                    </button>
                   </div>
                 ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
-                    <div style={{ width: '48px', height: '48px', borderRadius: '14px', backgroundColor: 'var(--primary-light)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '2px', boxShadow: 'var(--glass-specular-soft)' }}>
-                      <UploadCloud size={24} />
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+                    <UploadCloud size={24} color="var(--primary)" />
+                    <div style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                      Upload 1 item photo
                     </div>
-                    <div style={{ fontSize: '0.96rem', fontWeight: 650, color: 'var(--text-main)' }}>
-                      Upload an item photo
-                    </div>
-                    <p style={{ color: 'var(--text-muted)', fontSize: '0.84rem', marginBottom: '12px', maxWidth: '380px' }}>
-                      JPG, PNG, or WebP under 5 MB. Photos significantly speed up item identification.
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.78rem', margin: 0 }}>
+                      JPG, PNG, or WebP under 5 MB.
                     </p>
                     
                     <input 
@@ -806,13 +806,13 @@ export const ReportForm: React.FC = () => {
                       className="btn btn-secondary" 
                       onClick={() => fileInputRef.current?.click()}
                       disabled={isSaving}
-                      style={{ padding: '8px 18px', fontSize: '0.88rem' }}
+                      style={{ padding: '6px 14px', fontSize: '0.82rem', marginTop: '6px' }}
                     >
-                      Browse Files
+                      Browse File
                     </button>
                     
                     {imageError && (
-                      <div style={{ color: 'var(--danger)', fontSize: '0.82rem', fontWeight: 500, backgroundColor: 'var(--danger-light)', padding: '6px 14px', borderRadius: '8px', maxWidth: '360px', marginTop: '6px' }}>
+                      <div style={{ color: 'var(--danger)', fontSize: '0.8rem', marginTop: '4px' }}>
                         {imageError}
                       </div>
                     )}
@@ -824,13 +824,11 @@ export const ReportForm: React.FC = () => {
                 <label style={{
                   display: 'flex',
                   alignItems: 'flex-start',
-                  gap: '10px',
-                  marginTop: '12px',
-                  padding: '12px 14px',
-                  borderRadius: 'var(--radius-sm)',
-                  border: '1px solid var(--border)',
-                  backgroundColor: isSensitiveImage ? 'var(--primary-light)' : 'rgba(255, 255, 255, 0.55)',
-                  cursor: isSaving ? 'not-allowed' : 'pointer'
+                  gap: '8px',
+                  marginTop: '8px',
+                  cursor: isSaving ? 'not-allowed' : 'pointer',
+                  fontSize: '0.82rem',
+                  color: 'var(--text-secondary)'
                 }}>
                   <input
                     type="checkbox"
@@ -840,13 +838,7 @@ export const ReportForm: React.FC = () => {
                     style={{ marginTop: '2px' }}
                   />
                   <span>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.86rem', fontWeight: 650, color: 'var(--text-main)' }}>
-                      <Lock size={14} />
-                      Sensitive document photo
-                    </span>
-                    <span style={{ display: 'block', color: 'var(--text-muted)', fontSize: '0.78rem', marginTop: '3px', lineHeight: 1.45 }}>
-                      Use for ID cards, licenses, or documents. Only you can view this image; it is excluded from shared listings.
-                    </span>
+                    <strong>Sensitive image</strong> — Check if the photo displays government/college ID numbers or personal documents. Excluded from public views.
                   </span>
                 </label>
               )}
@@ -854,23 +846,25 @@ export const ReportForm: React.FC = () => {
           </div>
 
           {/* Form Actions Footer */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '36px', paddingTop: '20px', borderTop: '1px solid var(--border)' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '28px', paddingTop: '16px', borderTop: '1px solid var(--border)' }}>
             {submitError && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 16px', backgroundColor: 'var(--danger-light)', color: 'var(--danger)', borderRadius: 'var(--radius-sm)', fontSize: '0.9rem', fontWeight: 500 }}>
-                <AlertCircle size={18} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', backgroundColor: 'var(--danger-light)', color: 'var(--danger)', borderRadius: '4px', fontSize: '0.88rem' }}>
+                <AlertCircle size={16} />
                 <span>{submitError}</span>
               </div>
             )}
-            <div className="report-form-actions" style={{ display: 'flex', justifyContent: 'flex-end', gap: '14px', alignItems: 'center' }}>
-              <button type="button" className="btn btn-ghost" onClick={() => navigate(-1)} disabled={isSaving}>Cancel</button>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', alignItems: 'center' }}>
+              <button type="button" className="btn btn-secondary" onClick={() => navigate(-1)} disabled={isSaving}>
+                Cancel
+              </button>
               <button 
                 type="submit" 
                 className="btn btn-primary" 
-                style={{ minWidth: '170px' }}
+                style={{ minWidth: '160px' }}
                 disabled={isSaving}
               >
                 {isSaving ? (
-                  <><Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /> {uploadStatus || 'Saving...'}</>
+                  <><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> {uploadStatus || 'Saving...'}</>
                 ) : (isEdit ? 'Save Changes' : (isLost ? 'Submit Lost Report' : 'Submit Found Report'))}
               </button>
             </div>

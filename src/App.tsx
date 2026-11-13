@@ -13,6 +13,7 @@ import { ItemDetails } from './pages/ItemDetails';
 import { Notifications } from './pages/Notifications';
 import { Profile } from './pages/Profile';
 import { AdminPortal } from './pages/AdminPortal';
+import { AdminLogin } from './pages/AdminLogin';
 import { Auth } from './pages/Auth';
 import './index.css';
 
@@ -26,6 +27,7 @@ function App() {
             <Route path="/login" element={<Auth defaultMode="login" />} />
             <Route path="/signup" element={<Auth defaultMode="signup" />} />
             <Route path="/auth" element={<Auth />} />
+            <Route path="/admin/login" element={<AdminLogin />} />
 
             {/* Application Shell Routes */}
             <Route path="/" element={<Layout />}>

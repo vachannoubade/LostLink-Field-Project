@@ -1,15 +1,34 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getTrustedRole, isTrustedAdminUser } from '../src/lib/admin.ts';
+import {
+  getTrustedRole,
+  isTrustedAdminUser,
+  isTrustedDeskOperator,
+  isTrustedStaffUser
+} from '../src/lib/admin.ts';
 
 test('trusts only the server-controlled app_metadata role', () => {
   assert.equal(getTrustedRole({ app_metadata: { role: 'admin' } }), 'admin');
   assert.equal(isTrustedAdminUser({ app_metadata: { role: 'admin' } }), true);
+  assert.equal(isTrustedDeskOperator({ app_metadata: { role: 'admin' } }), true);
+  assert.equal(isTrustedStaffUser({ app_metadata: { role: 'admin' } }), true);
+
+  assert.equal(getTrustedRole({ app_metadata: { role: 'desk_operator' } }), 'desk_operator');
+  assert.equal(isTrustedAdminUser({ app_metadata: { role: 'desk_operator' } }), false);
+  assert.equal(isTrustedDeskOperator({ app_metadata: { role: 'desk_operator' } }), true);
+  assert.equal(isTrustedStaffUser({ app_metadata: { role: 'desk_operator' } }), true);
+
+  assert.equal(getTrustedRole({ app_metadata: { role: 'staff' } }), 'staff');
+  assert.equal(isTrustedAdminUser({ app_metadata: { role: 'staff' } }), false);
+  assert.equal(isTrustedDeskOperator({ app_metadata: { role: 'staff' } }), false);
+  assert.equal(isTrustedStaffUser({ app_metadata: { role: 'staff' } }), true);
 
   assert.equal(getTrustedRole({ app_metadata: { role: 'student' } }), 'student');
   assert.equal(getTrustedRole({ app_metadata: {} }), 'student');
   assert.equal(getTrustedRole(null), 'student');
   assert.equal(isTrustedAdminUser(undefined), false);
+  assert.equal(isTrustedDeskOperator(undefined), false);
+  assert.equal(isTrustedStaffUser(undefined), false);
 });
 
 test('ignores user_metadata and arbitrary profile fields', () => {

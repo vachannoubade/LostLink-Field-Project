@@ -252,3 +252,31 @@ test('AI Matching Suite - Case 7: Empty data returns a valid empty result', () =
   const singleFound = generateMatches([createReport({ type: 'found', status: 'found' })]);
   assert.deepStrictEqual(singleFound, []);
 });
+
+test('Matching Engine: Contradictory attributes reduce score and chronological mismatch is penalized', () => {
+  const lost = createReport({
+    id: 'l_watch',
+    type: 'lost',
+    category: 'Accessories',
+    title: 'Titan Fastrack Watch',
+    color: 'Blue',
+    brandModel: 'Fastrack',
+    date: '2026-10-15',
+    campusZone: 'Engineering Block'
+  });
+
+  const foundContradictory = createReport({
+    id: 'f_watch',
+    type: 'found',
+    category: 'Accessories',
+    title: 'Casio G-Shock Watch',
+    color: 'Red',
+    brandModel: 'Casio',
+    date: '2026-10-10', // 5 days before loss!
+    campusZone: 'Hostels'
+  });
+
+  const result = calculateMatchScore(lost, foundContradictory);
+  assert.ok(result.score < 45, `Expected score < 45 due to contradictory brand, color and date, got ${result.score}`);
+  assert.ok(result.reasons.some(r => r.includes('Contradictory') || r.includes('Different color') || r.includes('Chronological mismatch')));
+});
