@@ -544,8 +544,8 @@ export const AdminPortal: React.FC = () => {
           </h1>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <div style={{
+        <div className="admin-header-actions">
+          <div className="admin-account" style={{
             display: 'flex',
             alignItems: 'center',
             gap: '8px',

@@ -1,9 +1,9 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './store/AuthContext';
-import { DataProvider } from './store/DataContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AdminRoute } from './components/AdminRoute';
-import { Layout } from './components/Layout';
+import { AdminLayout } from './components/AdminLayout';
+import { StudentLayout } from './components/StudentLayout';
 import { Dashboard } from './pages/Dashboard';
 import { BrowseItems } from './pages/BrowseItems';
 import { ReportForm } from './pages/ReportForm';
@@ -20,94 +20,97 @@ import './index.css';
 function App() {
   return (
     <AuthProvider>
-      <DataProvider>
-        <Router>
-          <Routes>
-            {/* Standalone Authentication Routes */}
-            <Route path="/login" element={<Auth defaultMode="login" />} />
-            <Route path="/signup" element={<Auth defaultMode="signup" />} />
-            <Route path="/auth" element={<Auth />} />
-            <Route path="/admin/login" element={<AdminLogin />} />
+      <Router>
+        <Routes>
+          {/* Standalone Authentication Routes */}
+          <Route path="/login" element={<Auth defaultMode="login" />} />
+          <Route path="/signup" element={<Auth defaultMode="signup" />} />
+          <Route path="/auth" element={<Auth />} />
+          <Route path="/admin/login" element={<AdminLogin />} />
 
-            {/* Application Shell Routes */}
-            <Route path="/" element={<Layout />}>
-              {/* Public Browsing Routes */}
-              <Route index element={<Dashboard />} />
-              <Route path="browse" element={<BrowseItems />} />
-              <Route path="items/:id" element={<ItemDetails />} />
+          {/* Administration has its own shell and server-verified access. */}
+          <Route
+            path="/admin"
+            element={(
+              <AdminRoute>
+                <AdminLayout />
+              </AdminRoute>
+            )}
+          >
+            <Route index element={<AdminPortal />} />
+            <Route path="*" element={<Navigate to="/admin" replace />} />
+          </Route>
 
-              {/* Account-Specific Protected Routes */}
-              <Route
-                path="report/lost"
-                element={(
-                  <ProtectedRoute>
-                    <ReportForm />
-                  </ProtectedRoute>
-                )}
-              />
-              <Route
-                path="report/found"
-                element={(
-                  <ProtectedRoute>
-                    <ReportForm />
-                  </ProtectedRoute>
-                )}
-              />
-              <Route
-                path="report/edit/:id"
-                element={(
-                  <ProtectedRoute>
-                    <ReportForm />
-                  </ProtectedRoute>
-                )}
-              />
-              <Route
-                path="my-reports"
-                element={(
-                  <ProtectedRoute>
-                    <MyReports />
-                  </ProtectedRoute>
-                )}
-              />
-              <Route
-                path="ai-matches"
-                element={(
-                  <ProtectedRoute>
-                    <AIMatches />
-                  </ProtectedRoute>
-                )}
-              />
-              <Route
-                path="notifications"
-                element={(
-                  <ProtectedRoute>
-                    <Notifications />
-                  </ProtectedRoute>
-                )}
-              />
-              <Route
-                path="profile"
-                element={(
-                  <ProtectedRoute>
-                    <Profile />
-                  </ProtectedRoute>
-                )}
-              />
-              <Route
-                path="admin"
-                element={(
-                  <AdminRoute>
-                    <AdminPortal />
-                  </AdminRoute>
-                )}
-              />
+          {/* Student and public browsing routes */}
+          <Route path="/" element={<StudentLayout />}>
+            {/* Public Browsing Routes */}
+            <Route index element={<Dashboard />} />
+            <Route path="browse" element={<BrowseItems />} />
+            <Route path="items/:id" element={<ItemDetails />} />
 
-              {/* Catch-all redirect */}
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Route>
-          </Routes>
-        </Router>
-      </DataProvider>
+            {/* Account-Specific Protected Routes */}
+            <Route
+              path="report/lost"
+              element={(
+                <ProtectedRoute>
+                  <ReportForm />
+                </ProtectedRoute>
+              )}
+            />
+            <Route
+              path="report/found"
+              element={(
+                <ProtectedRoute>
+                  <ReportForm />
+                </ProtectedRoute>
+              )}
+            />
+            <Route
+              path="report/edit/:id"
+              element={(
+                <ProtectedRoute>
+                  <ReportForm />
+                </ProtectedRoute>
+              )}
+            />
+            <Route
+              path="my-reports"
+              element={(
+                <ProtectedRoute>
+                  <MyReports />
+                </ProtectedRoute>
+              )}
+            />
+            <Route
+              path="ai-matches"
+              element={(
+                <ProtectedRoute>
+                  <AIMatches />
+                </ProtectedRoute>
+              )}
+            />
+            <Route
+              path="notifications"
+              element={(
+                <ProtectedRoute>
+                  <Notifications />
+                </ProtectedRoute>
+              )}
+            />
+            <Route
+              path="profile"
+              element={(
+                <ProtectedRoute>
+                  <Profile />
+                </ProtectedRoute>
+              )}
+            />
+
+            {/* Catch-all redirect */}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Route>
+        </Routes>
+      </Router>
     </AuthProvider>
   );
 }
