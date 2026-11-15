@@ -110,6 +110,7 @@ export interface CampusMembership {
   id: string;
   userId?: string;
   user_id?: string;
+  memberName?: string;
   membershipType?: CampusMembershipType;
   membership_type?: CampusMembershipType;
   status: CampusMembershipStatus;

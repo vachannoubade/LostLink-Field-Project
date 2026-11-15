@@ -140,6 +140,7 @@ export const AdminPortal: React.FC = () => {
   const [persistedMatches, setPersistedMatches] = useState<Match[]>([]);
   const [claims, setClaims] = useState<Claim[]>([]);
   const [memberships, setMemberships] = useState<CampusMembership[]>([]);
+  const [profileNames, setProfileNames] = useState<Map<string, string>>(new Map());
   const [staffAllowlist, setStaffAllowlist] = useState<StaffAllowlistEntry[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
 
@@ -211,6 +212,7 @@ export const AdminPortal: React.FC = () => {
       const profileNames = new Map<string, string>(
         ((profilesResult.data || []) as AdminProfileRow[]).map(row => [row.id, row.name])
       );
+      setProfileNames(profileNames);
 
       setReports(
         ((reportsResult.data || []) as AdminReportRow[]).map(row =>
@@ -246,22 +248,27 @@ export const AdminPortal: React.FC = () => {
 
       if (!membershipsResult.error && membershipsResult.data) {
         setMemberships(
-          (membershipsResult.data as Record<string, unknown>[]).map(row => ({
-            id: row.id as string,
-            userId: (row.user_id || row.userId || '') as string,
-            user_id: (row.user_id || row.userId || '') as string,
-            membershipType: (row.membership_type || row.membershipType || 'student') as CampusMembership['membershipType'],
-            membership_type: (row.membership_type || row.membershipType || 'student') as CampusMembership['membershipType'],
-            status: (row.status || 'ACTIVE') as CampusMembership['status'],
-            approvedBy: (row.approved_by || row.approvedBy) as string | undefined,
-            approvedAt: (row.approved_at || row.approvedAt) as string | undefined,
-            approved_at: (row.approved_at || row.approvedAt) as string | undefined,
-            expiresAt: (row.expires_at || row.expiresAt) as string | undefined,
-            notes: (row.notes || '') as string | undefined,
-            createdAt: (row.created_at || row.createdAt || '') as string,
-            created_at: (row.created_at || row.createdAt || '') as string,
-            updatedAt: (row.updated_at || row.updatedAt || '') as string
-          }))
+          (membershipsResult.data as Record<string, unknown>[]).map(row => {
+            const rawUserId = (row.user_id || row.userId || '') as string;
+            const matchedName = profileNames.get(rawUserId);
+            return {
+              id: row.id as string,
+              userId: rawUserId,
+              user_id: rawUserId,
+              memberName: matchedName && matchedName.trim() ? matchedName.trim() : 'Unnamed Member',
+              membershipType: (row.membership_type || row.membershipType || 'student') as CampusMembership['membershipType'],
+              membership_type: (row.membership_type || row.membershipType || 'student') as CampusMembership['membershipType'],
+              status: (row.status || 'ACTIVE') as CampusMembership['status'],
+              approvedBy: (row.approved_by || row.approvedBy) as string | undefined,
+              approvedAt: (row.approved_at || row.approvedAt) as string | undefined,
+              approved_at: (row.approved_at || row.approvedAt) as string | undefined,
+              expiresAt: (row.expires_at || row.expiresAt) as string | undefined,
+              notes: (row.notes || '') as string | undefined,
+              createdAt: (row.created_at || row.createdAt || '') as string,
+              created_at: (row.created_at || row.createdAt || '') as string,
+              updatedAt: (row.updated_at || row.updatedAt || '') as string
+            };
+          })
         );
       }
 
@@ -1253,7 +1260,7 @@ export const AdminPortal: React.FC = () => {
               <table className="table">
                 <thead>
                   <tr>
-                    <th>User ID</th>
+                    <th>Member Name</th>
                     <th>Type</th>
                     <th>Status</th>
                     <th>Approved At</th>
@@ -1271,10 +1278,11 @@ export const AdminPortal: React.FC = () => {
                     memberships.map(mem => {
                       const memUserId = mem.userId || mem.user_id || '';
                       const memType = mem.membershipType || mem.membership_type || 'student';
+                      const displayName = mem.memberName || profileNames.get(memUserId) || 'Unnamed Member';
                       return (
                         <tr key={mem.id}>
-                          <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem' }}>
-                            {memUserId.slice(0, 16)}...
+                          <td style={{ fontWeight: 600, color: 'var(--text-main)', fontSize: '0.84rem' }}>
+                            {displayName}
                           </td>
                           <td style={{ fontWeight: 600 }}>
                             {memType.toUpperCase()}
@@ -1350,6 +1358,7 @@ export const AdminPortal: React.FC = () => {
                 memberships.map(mem => {
                   const memUserId = mem.userId || mem.user_id || '';
                   const memType = mem.membershipType || mem.membership_type || 'student';
+                  const displayName = mem.memberName || profileNames.get(memUserId) || 'Unnamed Member';
                   return (
                     <div key={mem.id} className="record-card">
                       <div className="record-card-row">
@@ -1365,8 +1374,8 @@ export const AdminPortal: React.FC = () => {
                           {mem.status}
                         </span>
                       </div>
-                      <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
-                        ID: {memUserId.slice(0, 20)}...
+                      <div style={{ fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-main)', marginTop: '2px' }}>
+                        {displayName}
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px', marginTop: '6px' }}>
                         {memType !== 'admin' && (
