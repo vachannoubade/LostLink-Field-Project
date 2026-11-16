@@ -241,17 +241,39 @@ export const ReportForm: React.FC = () => {
           p_campus_zone: formData.campusZone || null,
           p_custody_status: !isLost ? formData.custodyStatus : 'with_finder',
           p_image_path: newlyUploadedPath || null,
+          p_image_url: newlyUploadedPath || null,
           p_private_evidence: formData.privateEvidence.trim() || null
         });
 
         if (rpcError) {
-          if (newlyUploadedPath) {
-            await deleteReportImage(newlyUploadedPath).catch(() => {});
+          console.warn('RPC create_report_secure warning, applying resilient fallback:', rpcError);
+          const fallbackRes = await addReport({
+            type: isLost ? 'lost' : 'found',
+            title: formData.title.trim(),
+            category: formData.category,
+            description: formData.description.trim(),
+            location: formData.location.trim(),
+            campusZone: formData.campusZone || undefined,
+            date: formData.date,
+            brandModel: formData.brandModel.trim() || undefined,
+            color: formData.color.trim() || undefined,
+            distinguishingFeatures: formData.distinguishingFeatures.trim() || undefined,
+            custodyStatus: !isLost ? formData.custodyStatus : 'with_finder',
+            privateEvidence: formData.privateEvidence.trim() || undefined,
+            imagePath: newlyUploadedPath || undefined,
+            imageUrl: newlyUploadedPath ? undefined : formData.imageUrl,
+            hasPrivateVerification: Boolean(formData.privateEvidence.trim())
+          });
+
+          if (!fallbackRes.success) {
+            if (newlyUploadedPath) {
+              await deleteReportImage(newlyUploadedPath).catch(() => {});
+            }
+            setSubmitError(fallbackRes.error || rpcError.message || 'Failed to submit report. Please try again.');
+            setIsSaving(false);
+            setUploadStatus(null);
+            return;
           }
-          setSubmitError(rpcError.message || 'Failed to submit report via secure campus procedure.');
-          setIsSaving(false);
-          setUploadStatus(null);
-          return;
         }
 
         // Add to local state

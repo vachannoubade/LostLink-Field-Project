@@ -1125,7 +1125,7 @@ ON CONFLICT (user_id) DO NOTHING;
 -- Server-Side Procedures: Report Creation, Claims, Review & Handover
 -- -----------------------------------------------------------------------------
 
--- Procedure: Secure Report Creation
+-- Procedure: Secure Report Creation (Supports both p_image_path and legacy p_image_url)
 CREATE OR REPLACE FUNCTION public.create_report_secure(
   p_type TEXT,
   p_title TEXT,
@@ -1138,8 +1138,9 @@ CREATE OR REPLACE FUNCTION public.create_report_secure(
   p_distinguishing_features TEXT DEFAULT NULL,
   p_campus_zone TEXT DEFAULT NULL,
   p_custody_status TEXT DEFAULT 'with_finder',
-  p_image_url TEXT DEFAULT NULL,
-  p_private_evidence TEXT DEFAULT NULL
+  p_image_path TEXT DEFAULT NULL,
+  p_private_evidence TEXT DEFAULT NULL,
+  p_image_url TEXT DEFAULT NULL
 )
 RETURNS UUID
 LANGUAGE plpgsql
@@ -1149,6 +1150,7 @@ AS $$
 DECLARE
   v_uid UUID;
   v_report_id UUID;
+  v_effective_image TEXT;
 BEGIN
   v_uid := auth.uid();
   IF v_uid IS NULL THEN
@@ -1163,6 +1165,8 @@ BEGIN
     RAISE EXCEPTION 'Private evidence detail cannot exceed 300 characters.';
   END IF;
 
+  v_effective_image := COALESCE(p_image_path, p_image_url);
+
   -- Insert report (trg_enforce_report_mutation_rules validates title, desc, word count, location, quotas)
   INSERT INTO public.reports (
     user_id, type, title, category, description, location, date,
@@ -1172,7 +1176,7 @@ BEGIN
   VALUES (
     v_uid, p_type, trim(p_title), p_category, trim(p_description), trim(p_location), p_date,
     nullif(trim(p_brand_model), ''), nullif(trim(p_color), ''), nullif(trim(p_distinguishing_features), ''),
-    nullif(trim(p_campus_zone), ''), p_custody_status, p_image_url, p_type,
+    nullif(trim(p_campus_zone), ''), p_custody_status, v_effective_image, p_type,
     (p_private_evidence IS NOT NULL AND length(trim(p_private_evidence)) >= 3)
   )
   RETURNING id INTO v_report_id;
