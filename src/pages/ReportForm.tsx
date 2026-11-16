@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { useData } from '../store/DataContext';
 import type { Category, CustodyStatus } from '../types';
@@ -9,6 +9,8 @@ import { validateImageFile, uploadReportImage, deleteReportImage, isSensitiveIma
 import { CATEGORY_OPTIONS } from '../utils/categoryArt';
 import { SGUK_CAMPUS_ZONES } from '../utils/matching';
 import { supabase } from '../lib/supabase';
+import { PhotoAssist } from '../components/PhotoAssist';
+import { applyPhotoSuggestion } from '../lib/photoAssist';
 
 const getDefaultDate = () => new Date().toISOString().split('T')[0];
 
@@ -66,6 +68,7 @@ export const ReportForm: React.FC = () => {
   });
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [categoryChosen, setCategoryChosen] = useState(isEdit);
   const [isSensitiveImage, setIsSensitiveImage] = useState(() => isSensitiveImagePath(existingReport?.imagePath));
   const [imageError, setImageError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
@@ -75,6 +78,13 @@ export const ReportForm: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const wordCount = countWords(formData.description);
+
+  useEffect(() => {
+    const previewUrl = formData.imageUrl;
+    return () => {
+      if (previewUrl.startsWith('blob:')) URL.revokeObjectURL(previewUrl);
+    };
+  }, [formData.imageUrl]);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -95,9 +105,6 @@ export const ReportForm: React.FC = () => {
   };
 
   const handleRemoveImage = () => {
-    if (selectedFile && formData.imageUrl.startsWith('blob:')) {
-      URL.revokeObjectURL(formData.imageUrl);
-    }
     setSelectedFile(null);
     setIsSensitiveImage(false);
     setFormData(prev => ({ ...prev, imageUrl: '' }));
@@ -447,7 +454,24 @@ export const ReportForm: React.FC = () => {
 
       <div className="card" style={{ padding: '28px', backgroundColor: 'var(--bg-surface)' }}>
         <form onSubmit={handleSubmit}>
+          <input
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            aria-label="Item photo"
+            ref={fileInputRef}
+            onChange={handleImageUpload}
+            disabled={isSaving}
+            style={{ display: 'none' }}
+          />
           <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
+
+            <div className="photo-assist-intro">
+              <p>Have a photo? Add it to get optional AI suggestions for your item details.</p>
+              <button type="button" className="btn btn-secondary btn-sm" disabled={isSaving} onClick={() => {
+                if (!formData.imageUrl) fileInputRef.current?.click();
+                document.getElementById('report-photo')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              }}>{formData.imageUrl ? 'Review photo assistance' : 'Start with a photo'}</button>
+            </div>
             
             {/* 1. Item Details */}
             <div style={{ borderBottom: '1px solid var(--border)', paddingBottom: '24px' }}>
@@ -498,7 +522,10 @@ export const ReportForm: React.FC = () => {
                       <button
                         type="button"
                         key={opt.value}
-                        onClick={() => setFormData(prev => ({ ...prev, category: opt.value }))}
+                        onClick={() => {
+                          setCategoryChosen(true);
+                          setFormData(prev => ({ ...prev, category: opt.value }));
+                        }}
                         style={{
                           padding: '8px 10px',
                           borderRadius: 'var(--radius-sm)',
@@ -736,7 +763,7 @@ export const ReportForm: React.FC = () => {
               )}
 
               {/* Photo Upload Container */}
-              <div className="form-group" style={{ marginBottom: 0 }}>
+              <div id="report-photo" className="form-group" style={{ marginBottom: 0 }}>
                 <label className="form-label">
                   Photo (Optional, max 5 MB)
                 </label>
@@ -753,7 +780,7 @@ export const ReportForm: React.FC = () => {
                         <img src={formData.imageUrl} alt="Item Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                       </div>
 
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap', gap: '8px' }}>
                         {selectedFile ? (
                           <span style={{ fontSize: '0.78rem', padding: '3px 8px', backgroundColor: 'var(--primary-light)', color: 'var(--primary)', borderRadius: '4px', fontWeight: 500 }}>
                             Ready to upload ({(selectedFile.size / (1024 * 1024)).toFixed(2)} MB)
@@ -765,6 +792,9 @@ export const ReportForm: React.FC = () => {
                         )}
                         <button type="button" className="btn btn-secondary btn-sm" onClick={handleRemoveImage} disabled={isSaving}>
                           Remove
+                        </button>
+                        <button type="button" className="btn btn-secondary btn-sm" onClick={() => fileInputRef.current?.click()} disabled={isSaving}>
+                          Replace
                         </button>
                       </div>
                     </div>
@@ -778,14 +808,6 @@ export const ReportForm: React.FC = () => {
                         JPG, PNG, or WebP under 5 MB.
                       </p>
                       
-                      <input 
-                        type="file"
-                        accept="image/jpeg,image/png,image/webp"
-                        ref={fileInputRef}
-                        onChange={handleImageUpload}
-                        disabled={isSaving}
-                        style={{ display: 'none' }}
-                      />
                       <button 
                         type="button" 
                         className="btn btn-secondary btn-sm" 
@@ -796,14 +818,11 @@ export const ReportForm: React.FC = () => {
                         Choose file
                       </button>
                       
-                      {imageError && (
-                        <div style={{ color: 'var(--danger)', fontSize: '0.8rem', marginTop: '4px' }}>
-                          {imageError}
-                        </div>
-                      )}
                     </div>
                   )}
                 </div>
+
+                {imageError && <p role="alert" className="photo-assist-error">{imageError}</p>}
 
                 {(!existingReport?.imagePath || selectedFile) && (
                   <label style={{
@@ -827,6 +846,26 @@ export const ReportForm: React.FC = () => {
                     </span>
                   </label>
                 )}
+
+                {selectedFile && !isSensitiveImage && formData.category !== 'ID Cards' ? (
+                  <PhotoAssist
+                    key={formData.imageUrl}
+                    file={selectedFile}
+                    values={formData}
+                    categoryChosen={categoryChosen}
+                    disabled={isSaving}
+                    onApply={(suggestion, selected) => {
+                      setFormData(current => applyPhotoSuggestion(current, suggestion, selected));
+                      if (selected.includes('category') && suggestion.category) setCategoryChosen(true);
+                    }}
+                  />
+                ) : formData.imageUrl ? (
+                  <p className="photo-assist-note" role="status">
+                    {isSensitiveImage || formData.category === 'ID Cards'
+                      ? 'For ID cards and sensitive photos, enter a general description manually without personal details.'
+                      : 'Choose a new photo with Replace to use on-device photo suggestions.'}
+                  </p>
+                ) : null}
               </div>
             </div>
 

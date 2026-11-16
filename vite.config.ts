@@ -53,6 +53,7 @@ export default defineConfig(({ mode }) => {
     plugins: [react()],
     envDir: __dirname,
     envPrefix: [],
+    worker: { format: 'es' },
     build: {
       sourcemap: false
     },

@@ -1,4 +1,13 @@
-# React + TypeScript + Vite
+# LostLink
+
+Campus lost-and-found reporting built with React, TypeScript, Vite and Supabase.
+
+Photo-assisted reporting uses a pretrained Qwen model locally in the browser,
+with no paid AI service or API key. See [photo assistance](docs/photo-assistance.md)
+for the student flow, download/device requirements, privacy, model attribution,
+and development instructions.
+
+## Frontend tooling
 
 This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
 

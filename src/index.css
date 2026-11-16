@@ -150,6 +150,30 @@ input, textarea, select {
   flex-shrink: 0;
 }
 
+.photo-assist-intro,
+.photo-assist {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+}
+
+.photo-assist { margin-top: 16px; }
+.photo-assist h3 { display: flex; align-items: center; gap: 8px; font-size: 1rem; }
+.photo-assist p, .photo-assist-intro p { font-size: 0.84rem; line-height: 1.55; margin: 8px 0 12px; }
+.photo-assist-note { font-size: 0.78rem; line-height: 1.5; color: var(--text-secondary); margin-top: 10px; }
+.photo-assist-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.photo-assist-actions .btn { white-space: normal; min-height: 44px; }
+.photo-assist-error { color: var(--danger); font-size: 0.84rem; margin-top: 10px; }
+.photo-assist progress { width: 100%; accent-color: var(--primary); }
+.photo-assist-review { min-width: 0; margin-top: 18px; border: 0; padding: 0; }
+.photo-assist-review legend { font-weight: 600; }
+.photo-assist-choice { display: flex; gap: 10px; padding: 12px 0; cursor: pointer; border-bottom: 1px solid var(--border); }
+.photo-assist-choice input { flex-shrink: 0; margin-top: 4px; width: 18px; height: 18px; }
+.photo-assist-choice > span { display: flex; flex-direction: column; gap: 4px; min-width: 0; font-size: 0.85rem; overflow-wrap: anywhere; }
+.photo-assist-choice small { color: var(--text-secondary); }
+.photo-assist-review .photo-assist-actions { margin-top: 14px; }
+
 .main-content {
   flex: 1;
   display: flex;
