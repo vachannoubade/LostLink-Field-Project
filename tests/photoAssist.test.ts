@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyPhotoSuggestion, parsePhotoSuggestion, isHardwarePhotoAdapter } from '../src/lib/photoAssist.ts';
+import { applyPhotoSuggestion, parsePhotoSuggestion } from '../src/lib/photoAssist.ts';
 
 test('accepts a bounded photo suggestion, including a fenced JSON response', () => {
   const result = parsePhotoSuggestion('```json\n{"title":"Blue backpack","category":"Bags","color":"Blue","description":"A blue backpack with black straps."}\n```');
@@ -48,16 +48,6 @@ test('null suggestions cannot erase information', () => {
   const current = { title: 'My blue bag', category: 'Bags', color: 'Navy', description: 'Original text' };
   const empty = parsePhotoSuggestion('{}');
   assert.deepEqual(applyPhotoSuggestion(current, empty, ['title', 'category', 'color', 'description']), current);
-});
-
-test('software-only GPU adapters are rejected before model downloads', () => {
-  assert.equal(isHardwarePhotoAdapter(null), false);
-  assert.equal(isHardwarePhotoAdapter({ isFallbackAdapter: true }), false);
-  assert.equal(isHardwarePhotoAdapter({ info: { isFallbackAdapter: true } }), false);
-  assert.equal(isHardwarePhotoAdapter({ info: { architecture: 'swiftshader' } }), false);
-  assert.equal(isHardwarePhotoAdapter({ info: { description: 'llvmpipe software renderer' } }), false);
-  assert.equal(isHardwarePhotoAdapter({ info: { architecture: 'integrated-gpu' } }), true);
-  assert.equal(isHardwarePhotoAdapter({}), true); // Older browsers do not expose adapter information.
 });
 
 test('document-like responses are withheld even when miscategorised by the model', () => {

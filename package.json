@@ -7,16 +7,14 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "test": "node --test --experimental-strip-types tests/matching.test.ts tests/verification.test.ts tests/supabaseUrl.test.ts tests/collegeEmail.test.ts tests/adminAccess.test.ts tests/claims.test.ts tests/photoAssist.test.ts",
+    "test": "node --test --experimental-strip-types tests/matching.test.ts tests/verification.test.ts tests/supabaseUrl.test.ts tests/collegeEmail.test.ts tests/adminAccess.test.ts tests/claims.test.ts tests/photoAssist.test.ts tests/photoAssistApi.test.ts",
     "test:db": "node --test tests/db/stageReadyAccessHardening.test.mjs tests/db/campusRecoveryArchitecture.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
-    "@huggingface/transformers": "4.3.2",
     "@supabase/supabase-js": "^2.117.3",
     "framer-motion": "^14.1.0",
     "lucide-react": "^1.54.0",
-    "onnxruntime-web": "1.31.0-dev.20260914-8d85527a0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.4"

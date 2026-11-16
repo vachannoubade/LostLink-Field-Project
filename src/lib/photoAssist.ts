@@ -1,9 +1,5 @@
-import type { Category } from '../types';
+import type { Category } from '../types.ts';
 
-// Pin the public, quantized conversion as well as the JavaScript runtime.
-export const PHOTO_MODEL = 'onnx-community/Qwen3-VL-2B-Instruct-ONNX';
-export const PHOTO_MODEL_REVISION = '5dc9194ba42fa62c2f1440d98a71f7cd5280afe2';
-export const PHOTO_MODEL_DOWNLOAD_BYTES = 1_530_000_000;
 export const PHOTO_FIELDS = ['title', 'category', 'color', 'description'] as const;
 export type PhotoField = typeof PHOTO_FIELDS[number];
 export type PhotoSuggestion = {
@@ -36,16 +32,6 @@ const FIELD_LIMITS = { title: 70, color: 50, description: 700 };
 // Model text is a suggestion, never HTML or a trusted source of identity details.
 const SENSITIVE_TEXT = /https?:\/\/|www\.|[\w.+-]+@[\w.-]+\.[a-z]{2,}|\d{6,}|(?:\+?\d[\d ()-]{7,}\d)|[<>]/i;
 const IDENTITY_DOCUMENT = /\b(?:id[ -]?card|identity|identification|student (?:card|id)|passport|driving licen[cs]e|credit card|debit card|bank card|aadhaar|aadhar|pan card|prn)\b/i;
-
-export interface PhotoGpuAdapter {
-  isFallbackAdapter?: boolean;
-  info?: { isFallbackAdapter?: boolean; architecture?: string; description?: string };
-}
-
-export function isHardwarePhotoAdapter(adapter: PhotoGpuAdapter | null): boolean {
-  if (!adapter || adapter.isFallbackAdapter || adapter.info?.isFallbackAdapter) return false;
-  return !/swiftshader|llvmpipe|software/i.test(`${adapter.info?.architecture ?? ''} ${adapter.info?.description ?? ''}`);
-}
 
 export function parsePhotoSuggestion(output: string): PhotoSuggestion {
   if (output.length > 6000) throw new Error('The photo response was too long. Try a clearer photo.');
@@ -90,10 +76,3 @@ export function applyPhotoSuggestion<T extends PhotoFormValues>(
   }
   return next;
 }
-
-export type PhotoWorkerMessage =
-  | { type: 'progress'; message: string; downloaded?: number }
-  | { type: 'result'; suggestion: PhotoSuggestion }
-  | { type: 'error'; message: string };
-
-export type PhotoWorkerRequest = { type: 'analyze'; image: Blob };

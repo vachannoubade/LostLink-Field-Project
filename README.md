@@ -2,10 +2,10 @@
 
 Campus lost-and-found reporting built with React, TypeScript, Vite and Supabase.
 
-Photo-assisted reporting uses a pretrained Qwen model locally in the browser,
-with no paid AI service or API key. See [photo assistance](docs/photo-assistance.md)
-for the student flow, download/device requirements, privacy, model attribution,
-and development instructions.
+Photo-assisted reporting uses server-based Gemini suggestions, with no student
+model downloads. It requires a Google AI Studio free-tier project with billing
+disabled. See [photo assistance](docs/photo-assistance.md) for setup, privacy,
+limits and preview verification.
 
 ## Frontend tooling
 

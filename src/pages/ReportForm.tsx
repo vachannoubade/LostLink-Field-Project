@@ -863,7 +863,7 @@ export const ReportForm: React.FC = () => {
                   <p className="photo-assist-note" role="status">
                     {isSensitiveImage || formData.category === 'ID Cards'
                       ? 'For ID cards and sensitive photos, enter a general description manually without personal details.'
-                      : 'Choose a new photo with Replace to use on-device photo suggestions.'}
+                      : 'Choose a new photo with Replace to use photo suggestions.'}
                   </p>
                 ) : null}
               </div>
