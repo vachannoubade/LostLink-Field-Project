@@ -10,6 +10,21 @@ const UNAVAILABLE = 'Photo suggestions are temporarily unavailable. Please enter
 
 type Environment = Record<string, string | undefined>;
 type Fetch = typeof globalThis.fetch;
+type Diagnostic = { stage: 'health' | 'auth' | 'generation' | 'request'; status?: number; reason: string };
+
+// Only fixed classifications leave the server. Never include upstream messages,
+// headers, request bodies, photos, user IDs or credential values in diagnostics.
+async function providerFailure(response: Response): Promise<string> {
+  try {
+    const data = await response.json() as { error?: { details?: { reason?: string }[] } };
+    const known = new Set(['API_KEY_INVALID', 'API_KEY_SERVICE_BLOCKED', 'API_KEY_HTTP_REFERRER_BLOCKED',
+      'API_KEY_IP_ADDRESS_BLOCKED', 'SERVICE_DISABLED', 'CONSUMER_INVALID', 'BILLING_DISABLED']);
+    const reason = data.error?.details?.find(detail => known.has(detail.reason ?? ''))?.reason;
+    if (reason) return reason;
+  } catch { /* A provider may return a non-JSON error page. */ }
+  return ({ 400: 'INVALID_REQUEST', 401: 'INVALID_CREDENTIAL', 403: 'ACCESS_DENIED',
+    404: 'MODEL_UNAVAILABLE', 429: 'QUOTA_EXHAUSTED' } as Record<number, string>)[response.status] ?? 'PROVIDER_UNAVAILABLE';
+}
 
 class RequestError extends Error {
   status: number;
@@ -94,10 +109,34 @@ function validateImage(body: unknown): string {
 
 export function createPhotoHandler(options: {
   env?: () => Environment; fetch?: Fetch; allow?: (userId: string) => boolean;
+  diagnose?: (event: Diagnostic) => void; now?: () => number;
 } = {}) {
   const getEnv = options.env ?? (() => process.env);
   const fetch = options.fetch ?? globalThis.fetch;
   const allow = options.allow ?? createPhotoLimiter();
+  const diagnose = options.diagnose ?? (event => console.warn('[photo-assist]', JSON.stringify(event)));
+  const now = options.now ?? Date.now;
+  let health: { key: string; expires: number; result: Promise<boolean> } | undefined;
+
+  const checkProvider = (key: string) => {
+    if (health?.key === key && health.expires > now()) return health.result;
+    // Metadata only: this never submits a photo or generates billable output.
+    // Cache success AND failure, sharing in-flight checks within each instance.
+    const result = (async () => {
+      try {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}`, {
+          headers: { 'x-goog-api-key': key }, signal: AbortSignal.timeout(8_000),
+        });
+        if (!response.ok) { diagnose({ stage: 'health', status: response.status, reason: await providerFailure(response) }); return false; }
+        const metadata = await response.json() as { supportedGenerationMethods?: string[] };
+        const available = metadata.supportedGenerationMethods?.includes('generateContent') === true;
+        if (!available) diagnose({ stage: 'health', reason: 'GENERATION_UNSUPPORTED' });
+        return available;
+      } catch { diagnose({ stage: 'health', reason: 'NETWORK_OR_TIMEOUT' }); return false; }
+    })();
+    health = { key, expires: now() + 60_000, result };
+    return result;
+  };
 
   return async (request: Request): Promise<Response> => {
     if (!['GET', 'POST'].includes(request.method)) return json(405, { error: 'Method not allowed.' }, { Allow: 'GET, POST' });
@@ -106,7 +145,7 @@ export function createPhotoHandler(options: {
     const publicKey = env.VITE_SUPABASE_PUBLISHABLE_KEY || env.VITE_SUPABASE_ANON_KEY;
     const configured = env.PHOTO_ASSIST_ENABLED === 'true' && Boolean(env.GEMINI_API_KEY?.trim()) &&
       url.valid && Boolean(publicKey) && !isPrivilegedCredential(publicKey);
-    if (request.method === 'GET') return json(200, { available: configured });
+    if (request.method === 'GET') return json(200, { available: configured && await checkProvider(env.GEMINI_API_KEY!.trim()) });
     if (!configured || !url.valid || !publicKey) return json(503, { error: UNAVAILABLE });
 
     // Browser calls are same-origin; no permissive CORS headers are returned.
@@ -117,14 +156,17 @@ export function createPhotoHandler(options: {
     }
 
     const signal = AbortSignal.any([request.signal, AbortSignal.timeout(35_000)]);
+    let stage: Diagnostic['stage'] = 'request';
     try {
       const image = validateImage(await readBody(request));
       // Validate with the Auth server; never trust a decoded JWT or user_metadata.
+      stage = 'auth';
       const auth = await fetch(`${url.url}/auth/v1/user`, {
         headers: { apikey: publicKey, Authorization: authorization },
         signal: AbortSignal.any([signal, AbortSignal.timeout(8_000)]),
       });
       if (!auth.ok) {
+        diagnose({ stage, status: auth.status, reason: 'AUTH_REJECTED' });
         return auth.status === 401 || auth.status === 403
           ? json(401, { error: 'Please sign in again before requesting photo suggestions.' })
           : json(503, { error: UNAVAILABLE });
@@ -135,6 +177,7 @@ export function createPhotoHandler(options: {
       }
       if (!allow(user.id)) return json(429, { error: 'Photo suggestions are busy or your request limit has been reached. Try later or enter details manually.' }, { 'Retry-After': '60' });
 
+      stage = 'generation';
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
         method: 'POST', signal,
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY!.trim() },
@@ -154,8 +197,11 @@ export function createPhotoHandler(options: {
           },
         }),
       });
-      if (response.status === 429) return json(429, { error: 'The free photo-assistance allowance is currently exhausted. Please try later or enter details manually.' }, { 'Retry-After': '60' });
-      if (!response.ok) return json(503, { error: UNAVAILABLE });
+      if (!response.ok) {
+        diagnose({ stage, status: response.status, reason: await providerFailure(response) });
+        if (response.status === 429) return json(429, { error: 'The free photo-assistance allowance is currently exhausted. Please try later or enter details manually.' }, { 'Retry-After': '60' });
+        return json(503, { error: UNAVAILABLE });
+      }
       const result = await response.json() as {
         candidates?: { finishReason?: string; content?: { parts?: { text?: string; thought?: boolean }[] } }[];
       };
@@ -166,7 +212,7 @@ export function createPhotoHandler(options: {
       catch { return json(422, { error: 'No reliable details found. Try a clearer photo of one item or enter details manually.' }); }
     } catch (error) {
       if (error instanceof RequestError) return json(error.status, { error: error.message });
-      // Never log images, authorization headers, API keys or provider error bodies.
+      diagnose({ stage, reason: signal.aborted ? 'REQUEST_CANCELLED_OR_TIMEOUT' : 'REQUEST_FAILED' });
       return json(signal.aborted ? 504 : 503, { error: signal.aborted
         ? 'Photo suggestions took too long. Try later or enter details manually.' : UNAVAILABLE });
     }

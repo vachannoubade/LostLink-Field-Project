@@ -29,6 +29,7 @@ function setup(overrides: {
     allow: overrides.allow ?? (() => true),
     fetch: async (url, options) => {
       calls.push({ url: String(url), options });
+      if (String(url).endsWith('/models/gemini-2.5-flash-lite')) return Response.json({ supportedGenerationMethods: ['generateContent'] });
       return String(url).includes('/auth/v1/user')
         ? Response.json(overrides.auth ?? user, { status: overrides.authStatus ?? 200 })
         : Response.json(overrides.model ?? model, { status: overrides.modelStatus ?? 200 });
@@ -153,4 +154,56 @@ test('warm-instance limiter handles cooldown, daily cap and global bursts', () =
   assert.equal(allow('student'), true);
   for (let i = 0; i < 9; i++) assert.equal(allow(`other-${i}`), true);
   assert.equal(allow('one-more'), false);
+});
+
+test('health probes validate model access without generating or exposing data and share cached results', async () => {
+  let calls = 0;
+  let now = 0;
+  const handler = createPhotoHandler({ env: () => environment, now: () => now, fetch: async (url, options) => {
+    calls++;
+    assert.match(String(url), /\/models\/gemini-2\.5-flash-lite$/);
+    assert.equal(options?.method, undefined);
+    assert.equal(options?.body, undefined);
+    return Response.json({ supportedGenerationMethods: ['generateContent'] });
+  } });
+  const check = () => handler(new Request('https://lostlink.example/api/photo-assist'));
+  const responses = await Promise.all([check(), check(), check()]);
+  for (const response of responses) assert.deepEqual(await response.json(), { available: true });
+  assert.equal(calls, 1);
+  now = 60_001;
+  await check();
+  assert.equal(calls, 2);
+});
+
+test('health failures retain only allowlisted diagnostics, cache failures and respect a rotated key', async () => {
+  const diagnostics: unknown[] = [];
+  let calls = 0;
+  let key = 'private-test-key';
+  const handler = createPhotoHandler({ env: () => ({ ...environment, GEMINI_API_KEY: key }),
+    diagnose: event => diagnostics.push(event), fetch: async () => {
+      calls++;
+      return Response.json({ error: { message: 'private-test-key private image contents', details: [
+        { reason: 'API_KEY_INVALID', metadata: { apiKey: 'private-test-key' } },
+      ] } }, { status: 400 });
+    },
+  });
+  const check = () => handler(new Request('https://lostlink.example/api/photo-assist'));
+  assert.deepEqual(await (await check()).json(), { available: false });
+  await check();
+  assert.equal(calls, 1);
+  assert.deepEqual(diagnostics, [{ stage: 'health', status: 400, reason: 'API_KEY_INVALID' }]);
+  key = 'replacement-private-key';
+  await check();
+  assert.equal(calls, 2);
+  assert.doesNotMatch(JSON.stringify(diagnostics), /private|contents/);
+});
+
+test('generation failures produce useful classifications without upstream error text', async () => {
+  const diagnostics: unknown[] = [];
+  const handler = createPhotoHandler({ env: () => environment, diagnose: event => diagnostics.push(event),
+    fetch: async url => String(url).includes('/auth/v1/user') ? Response.json(user) :
+      Response.json({ error: { message: 'private data', details: [{ reason: 'arbitrary secret value' }] } }, { status: 404 }),
+  });
+  assert.equal((await handler(request())).status, 503);
+  assert.deepEqual(diagnostics, [{ stage: 'generation', status: 404, reason: 'MODEL_UNAVAILABLE' }]);
 });
